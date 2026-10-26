@@ -21,6 +21,15 @@ class ThemeColors:
     gold_highlight: str = "#FFD700"     # POC / Whale highlight
     cyan_info: str = "#00E5FF"          # CVD Line / Imbalance highlight
 
+    # Pro candle palette (TradingView-style hollow dojis & soft wicks)
+    bull_candle: str = "#26A69A"        # muted teal fill (up)
+    bear_candle: str = "#EF5350"        # muted red fill (down)
+    wick_bull: str = "#4DB6AC"          # lighter teal wick
+    wick_bear: str = "#E57373"          # lighter red wick
+    doji_stroke: str = "#B0BEC5"        # hollow doji outline
+    grid_line: str = "#1C222D"          # price/time grid lines
+    axis_text: str = "#8A93A6"          # right-side price scale labels
+
     # Heatmap Gradient Stops
     heatmap_low: str = "#0D1117"
     heatmap_mid: str = "#1E3A8A"

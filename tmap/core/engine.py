@@ -64,8 +64,26 @@ class OrderFlowEngine:
         self._recent_bar_volumes: Deque[float] = deque(maxlen=self.config.rvol_window)
         self._rvol_sum: float = 0.0
 
-        # Persistent L2 DOM cache configuration & auto-loading
+        # Persistent L2 DOM cache configuration & auto-loading.
+        # Relative dirs are anchored to the project root, NOT the process CWD:
+        # launching from an elevated Windows shortcut puts CWD in
+        # C:\Windows\System32 where writing raises WinError 5.
+        # Resolve relative dirs against the ORIGINAL CWD (captured before any
+        # os.chdir below), then anchor to project root. Tests that pass an
+        # explicit tmp_path cache_dir keep working; default "cache" lands in
+        # the repo regardless of where the app is launched from.
+        _orig_cwd = os.getcwd()
         self.cache_dir = getattr(self.config, "cache_dir", "cache")
+        if not os.path.isabs(self.cache_dir):
+            _proj_root = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            cand_cwd = os.path.abspath(os.path.join(_orig_cwd, self.cache_dir))
+            cand_proj = os.path.abspath(os.path.join(_proj_root, self.cache_dir))
+            # Prefer an already-existing dir; otherwise anchor to project root.
+            if os.path.isdir(cand_cwd) and cand_cwd != cand_proj:
+                self.cache_dir = cand_cwd
+            else:
+                self.cache_dir = cand_proj
         self.cache_file = os.path.join(self.cache_dir, f"dom_cache_{self.config.symbol}.json")
         self.candles_file = os.path.join(self.cache_dir, f"candles_{self.config.symbol}.json")
         self._load_cached_dom()

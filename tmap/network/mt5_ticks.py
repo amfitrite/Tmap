@@ -18,6 +18,7 @@ The MetaTrader5 package only exists on Windows; everywhere else every entry
 point degrades gracefully (``mt5_available()`` is False / clear exceptions).
 """
 
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterable, List, Optional, Tuple
@@ -27,8 +28,11 @@ from tmap.utils.logger import get_logger
 
 logger = get_logger("MT5Ticks")
 
-# Default local persistence so a downloaded session can be reloaded offline
-DEFAULT_TICKS_DIR = "cache"
+# Default local persistence so a downloaded session can be reloaded offline.
+# Anchored to the project root (never the process CWD, which on an elevated
+# Windows launch sits in C:\Windows\System32 and blocks writes with WinError 5).
+DEFAULT_TICKS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "cache")
 
 
 def mt5_available() -> bool:

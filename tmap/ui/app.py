@@ -62,10 +62,12 @@ class _HistoryLoadWorker(QThread):
                 self.symbol, hours_back=self.hours, force_download=self.force_download)
             n, bars = replay_ticks(ticks, self.engine, chunk_size=20_000)
             self.engine.save_cache()
-            self.finished_ok.emit(n, bars, source)
+            if not self.isInterruptionRequested():
+                self.finished_ok.emit(n, bars, source)
         except Exception as exc:  # pragma: no cover - defensive worker guard
             logger.exception("History load failed")
-            self.failed.emit(str(exc))
+            if not self.isInterruptionRequested():
+                self.failed.emit(str(exc))
 
 
 class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
@@ -154,7 +156,13 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         self.canvas.tick_size_ref = self.engine.config.tick_size
         try:
             from tmap.core.heatmap_builder import HeatmapBuilder
-            self.heatmap = HeatmapBuilder(self.engine)
+            # Tiles live next to the DOM/candle cache (engine anchors relative
+            # dirs to the project root, never the process CWD — which on an
+            # elevated Windows launch sits in C:\Windows\System32 and makes
+            # mkdir fail with WinError 5, disabling the heatmap overlay).
+            tile_root = os.path.join(
+                os.path.dirname(self.engine.cache_dir), "data", "heat_tiles")
+            self.heatmap = HeatmapBuilder(self.engine, root=tile_root)
             self.heatmap.attach()
             self.canvas.on_request_heatmaps = self._request_heat_frames
         except Exception as exc:  # pragma: no cover - defensive UI wiring
@@ -324,6 +332,15 @@ def main() -> None:
     if not HAS_PYSIDE:
         print("Error: PySide6 is not installed. Please install it with 'pip install PySide6'.")
         sys.exit(1)
+
+    # Pin the working directory to the project root so any stray relative
+    # paths resolve inside the app folder even when launched from a shell
+    # sitting in a protected Windows directory (System32 / WinError 5).
+    _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        os.chdir(_proj_root)
+    except OSError:  # pragma: no cover - exotic environments
+        pass
 
     parser = argparse.ArgumentParser(description="Tmap Terminal Application")
     parser.add_argument("--mock", action="store_true", help="Start with synthetic mock feed")

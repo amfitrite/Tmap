@@ -82,12 +82,14 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
         grid_visible: bool = True,
         price_line_visible: bool = True,
         heatmap_visible: bool = True,
+        auto_scale_visible: bool = True,
         decay_halflife: float = 60.0,
         on_timeframe: Optional[Callable[[int], None]] = None,
         on_chart_type: Optional[Callable[[str], None]] = None,
         on_toggle_grid: Optional[Callable[[bool], None]] = None,
         on_toggle_price_line: Optional[Callable[[bool], None]] = None,
         on_toggle_heatmap: Optional[Callable[[bool], None]] = None,
+        on_toggle_auto_scale: Optional[Callable[[bool], None]] = None,
         on_decay_halflife_changed: Optional[Callable[[float], None]] = None,
         on_zoom_in: Optional[Callable[[], None]] = None,
         on_zoom_out: Optional[Callable[[], None]] = None,
@@ -104,6 +106,7 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
             "grid": on_toggle_grid,
             "price_line": on_toggle_price_line,
             "heatmap": on_toggle_heatmap,
+            "auto_scale": on_toggle_auto_scale,
             "decay": on_decay_halflife_changed,
             "zoom_in": on_zoom_in,
             "zoom_out": on_zoom_out,
@@ -166,6 +169,13 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
         self.act_heat.setChecked(heatmap_visible)
         self.act_heat.toggled.connect(lambda on: self._emit("heatmap", on))
         self.addAction(self.act_heat)
+
+        self.act_auto = QAction("📐  Auto Fit Price Scale", self, checkable=True)
+        self.act_auto.setChecked(auto_scale_visible)
+        self.act_auto.setToolTip("Candles always fill the chart proportionally "
+                                 "(like pro platforms). Ctrl+wheel zoom disables it.")
+        self.act_auto.toggled.connect(lambda on: self._emit("auto_scale", on))
+        self.addAction(self.act_auto)
 
         # ---- DOM liquidity decay (limit-order persistence) ----------------
         decay_menu = self.addMenu("🧱  DOM Liquidity Decay")

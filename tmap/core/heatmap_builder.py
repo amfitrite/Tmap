@@ -14,6 +14,7 @@ Usage::
 """
 
 import math
+import os
 import threading
 from typing import Dict, List, Optional, Tuple
 
@@ -22,6 +23,26 @@ from tmap.core.dom_cache import DOMCache, DOMCacheConfig
 from tmap.core.heatmap_store import FrameCell, HeatFrame, TileStore, _snap_idx
 from tmap.core.types import TradeSide
 from tmap.utils.logger import get_logger
+
+
+def _writable_root(root: str) -> str:
+    """Return *root* if its directory tree can be created, else a safe fallback.
+
+    On Windows the process CWD may sit in a protected folder (e.g. launching
+    from an elevated shortcut lands in C:\\Windows\\System32, where mkdir raises
+    WinError 5). Falling back to %LOCALAPPDATA%\\Tmap keeps the liquidity
+    heatmap alive instead of silently disabling it.
+    """
+    try:
+        os.makedirs(root, exist_ok=True)
+        return root
+    except OSError as exc:
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        alt = os.path.join(base, "Tmap", "data", "heat_tiles")
+        logger.warning(
+            f"Heatmap tile dir '{root}' not writable ({exc}); using fallback '{alt}'.")
+        os.makedirs(alt, exist_ok=True)
+        return alt
 
 logger = get_logger("HeatmapBuilder")
 
@@ -42,7 +63,7 @@ class HeatmapBuilder:
         self.tick_size = cfg.tick_size
         self.frame_interval_s = max(0.05, float(frame_interval_s))
         self.tile_seconds = max(float(tile_seconds), self.frame_interval_s * 2)
-        self.store = TileStore(root=root, tile_seconds=self.tile_seconds,
+        self.store = TileStore(root=_writable_root(root), tile_seconds=self.tile_seconds,
                                frame_interval_s=self.frame_interval_s)
         self._lock = threading.Lock()
         self._tile_start: Optional[float] = None
