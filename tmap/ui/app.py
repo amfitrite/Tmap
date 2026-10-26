@@ -97,6 +97,11 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
             self.dom_panel.set_last_price(snapshot.last_price)
         self.dom_panel.update_ladder()
 
+        # Hydrate the chart with candles restored from the persistent cache so
+        # history is visible immediately on startup (not only after new ticks).
+        self.canvas.load_history(list(self.engine.bars), current_bar=self.engine.current_bar,
+                                 last_price=snapshot.last_price)
+
         chart_layout.addWidget(self.dom_panel, stretch=0)
 
         layout.addWidget(chart_area, stretch=1)

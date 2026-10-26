@@ -19,6 +19,8 @@ class EngineConfig:
     rvol_window: int = 20               # Rolling window of bars for RVOL baseline
     heatmap_resolution_ticks: int = 1   # Grouping tick size multiplier for DOM heatmap
     storage_cache_limit_mb: int = 1024  # Max disk cache in MB
+    cache_dir: str = "cache"            # Directory for persisted DOM/candle state
+    persist_candles: bool = True        # Also persist sealed bars (candles) across sessions
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EngineConfig":

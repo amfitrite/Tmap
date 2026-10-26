@@ -92,6 +92,10 @@ class DOMCache:
     def last_ask(self) -> float:
         return self._last_ask
 
+    @property
+    def last_ts(self) -> float:
+        return self._last_ts
+
     def _snap(self, price: float) -> float:
         ts = self.config.tick_size
         if ts <= 0:

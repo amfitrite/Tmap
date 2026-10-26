@@ -52,6 +52,7 @@ class OrderFlowEngine:
         self._last_depth: Optional[MarketDepth] = None
         self._last_price: float = 0.0
         self._bar_open_ts: float = 0.0
+        self._last_cache_save_ts: float = 0.0
 
         # Re-entrant lock guarding all mutable state below (feed thread vs GUI thread)
         self._lock = RLock()
@@ -66,7 +67,9 @@ class OrderFlowEngine:
         # Persistent L2 DOM cache configuration & auto-loading
         self.cache_dir = getattr(self.config, "cache_dir", "cache")
         self.cache_file = os.path.join(self.cache_dir, f"dom_cache_{self.config.symbol}.json")
+        self.candles_file = os.path.join(self.cache_dir, f"candles_{self.config.symbol}.json")
         self._load_cached_dom()
+        self._load_cached_candles()
 
     @property
     def current_bar(self) -> Optional[VolumeBar]:
@@ -124,6 +127,13 @@ class OrderFlowEngine:
         # the ingestion path (and can safely read engine state themselves).
         self.event_bus.emit(EventType.BAR_UPDATED, bar_snapshot)
         self.event_bus.emit(EventType.TICK_RECEIVED, tick)
+
+        # Periodic autosave (throttled to ~10s) so a crash never loses the
+        # whole session's DOM state and candle history.
+        now = time.time()
+        if now - self._last_cache_save_ts > 10.0:
+            self._last_cache_save_ts = now
+            self.save_cache()
 
     def process_depth(self, depth: MarketDepth) -> None:
         """Process incoming limit order book snapshot (true L2 correction if available)."""
@@ -273,9 +283,88 @@ class OrderFlowEngine:
                 logger.debug(f"Failed to load DOM cache from {self.cache_file}: {e}")
 
     def save_cache(self) -> None:
-        """Save current L2 DOM cache state to disk."""
+        """Save current L2 DOM cache state (and sealed candles) to disk."""
         with self._lock:
             try:
                 self.dom_cache.save_to_file(self.cache_file)
             except Exception as e:
                 logger.debug(f"Failed to save DOM cache: {e}")
+            if getattr(self.config, "persist_candles", True):
+                try:
+                    self._save_candles_locked()
+                except Exception as e:
+                    logger.debug(f"Failed to save candle cache: {e}")
+
+    # --------------------------------------------------------- candle history
+
+    def _bar_to_dict(self, bar: VolumeBar) -> Dict[str, object]:
+        return {
+            "index": bar.index,
+            "start_time": bar.start_time,
+            "end_time": bar.end_time,
+            "open": bar.open,
+            "high": bar.high,
+            "low": bar.low,
+            "close": bar.close,
+            "total_volume": bar.total_volume,
+            "buy_volume": bar.buy_volume,
+            "sell_volume": bar.sell_volume,
+            "delta": bar.delta,
+            "tick_count": bar.tick_count,
+            "profile": {str(p): v for p, v in bar.profile.items()},
+            "is_sealed": bar.is_sealed,
+        }
+
+    def _save_candles_locked(self) -> None:
+        """Atomically persist sealed bars so the chart can reload them next session."""
+        import json, tempfile
+        data = [self._bar_to_dict(b) for b in self.bars]
+        dirname = os.path.dirname(os.path.abspath(self.candles_file))
+        os.makedirs(dirname, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix="candles_", suffix=".tmp")
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp_path, self.candles_file)
+
+    def _load_cached_candles(self) -> None:
+        """Restore previously sealed candles from disk into the historical buffer."""
+        if not getattr(self.config, "persist_candles", True):
+            return
+        if not os.path.exists(self.candles_file):
+            return
+        try:
+            import json
+            with open(self.candles_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            restored = 0
+            for b in data:
+                try:
+                    bar = VolumeBar(
+                        index=int(b["index"]),
+                        start_time=float(b["start_time"]),
+                        end_time=float(b["end_time"]),
+                        open=float(b["open"]),
+                        high=float(b["high"]),
+                        low=float(b["low"]),
+                        close=float(b["close"]),
+                        total_volume=float(b.get("total_volume", 0.0)),
+                        buy_volume=float(b.get("buy_volume", 0.0)),
+                        sell_volume=float(b.get("sell_volume", 0.0)),
+                        delta=float(b.get("delta", 0.0)),
+                        tick_count=int(b.get("tick_count", 0)),
+                        profile={float(k): list(v) for k, v in b.get("profile", {}).items()},
+                        is_sealed=bool(b.get("is_sealed", True)),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+                self.bars.append(bar)
+                restored += 1
+            if restored:
+                last_idx = int(data[-1].get("index", 0)) if data else 0
+                self._bar_index = max(self._bar_index, last_idx)
+                last_bar = self.bars[-1]
+                if last_bar.end_time > (self.dom_cache.last_ts or 0.0):
+                    self._bar_open_ts = last_bar.end_time
+                logger.info(f"Restored {restored} cached candles from {self.candles_file}")
+        except Exception as e:
+            logger.debug(f"Failed to load candle cache from {self.candles_file}: {e}")

@@ -65,6 +65,17 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
         if HAS_PYSIDE:
             self.update()
 
+    def load_history(self, bars: List[VolumeBar], current_bar: Optional[VolumeBar] = None,
+                     last_price: float = 0.0) -> None:
+        """Hydrate the chart with previously cached candles so history survives restarts."""
+        self.bars = list(bars)[-1000:]
+        if current_bar is not None and current_bar.tick_count > 0:
+            self.current_bar = current_bar
+        if last_price > 0:
+            self.current_price = last_price
+        if HAS_PYSIDE:
+            self.update()
+
     def reset_view(self) -> None:
         self.offset_x = 0.0
         self.offset_y = 0.0
