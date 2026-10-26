@@ -128,7 +128,7 @@ python -m unittest discover -s tests
 - [x] MT5 TCP feed client (auto-reconnect)
 - [x] Mock feed untuk development offline
 - [x] Analytics: footprint imbalance, RVOL, VBP
-- [ ] **L2 DOM cache persistence** — rekonstruksi order book penuh dari stream tick
+- [x] **L2 DOM cache** — rekonstruksi order book sintetis dari stream tick (sweep / touch / decay, `tmap/core/dom_cache.py`)
 - [ ] **Heatmap likuiditas ala Bookmap** di ChartCanvas (pita warna waktu×harga)
 - [ ] EA `TmapBridge.mq5` resmi + dokumentasi setup
 - [ ] Replay sesi dari file tick log

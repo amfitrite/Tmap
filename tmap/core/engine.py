@@ -3,6 +3,7 @@ from typing import Deque, Dict, List, Optional
 import time
 
 from tmap.core.config import EngineConfig
+from tmap.core.dom_cache import DOMCache, DOMCacheConfig
 from tmap.core.events import EventBus, EventType
 from tmap.core.types import MarketDepth, MarketSnapshot, Tick, TradeSide, VolumeBar
 from tmap.utils.logger import get_logger
@@ -37,6 +38,9 @@ class OrderFlowEngine:
         self._last_depth: Optional[MarketDepth] = None
         self._last_price: float = 0.0
 
+        # Synthetic L2 DOM cache rebuilt from MT5 ticks (Bookmap-style liquidity map)
+        self.dom_cache: DOMCache = DOMCache(DOMCacheConfig(tick_size=self.config.tick_size))
+
         # Rolling window for RVOL calculation
         self._recent_bar_volumes: Deque[float] = deque(maxlen=self.config.rvol_window)
 
@@ -60,6 +64,9 @@ class OrderFlowEngine:
         self._last_price = tick.price
         self.recent_ticks.append(tick)
 
+        # Feed the synthetic L2 reconstruction (tick-derived liquidity map)
+        self.dom_cache.process_tick(tick)
+
         # Update Cumulative Volume Delta (CVD)
         delta_contribution = tick.volume if tick.side == TradeSide.BUY else -tick.volume
         self._cvd += delta_contribution
@@ -80,8 +87,9 @@ class OrderFlowEngine:
             self._seal_current_bar()
 
     def process_depth(self, depth: MarketDepth) -> None:
-        """Process incoming limit order book snapshot."""
+        """Process incoming limit order book snapshot (true L2 correction if available)."""
         self._last_depth = depth
+        self.dom_cache.process_depth(depth)
         self.event_bus.emit(EventType.DEPTH_UPDATED, depth)
 
     def _start_new_bar(self, initial_tick: Tick) -> None:
@@ -152,6 +160,13 @@ class OrderFlowEngine:
         best_bid = self._last_depth.best_bid if self._last_depth and self._last_depth.best_bid else self._last_price
         best_ask = self._last_depth.best_ask if self._last_depth and self._last_depth.best_ask else self._last_price
 
+        # Prefer the reconstructed synthetic book when no true depth feed exists
+        if self._last_depth is None or not (self._last_depth.bids or self._last_depth.asks):
+            synthetic = self.dom_cache.get_depth()
+            if synthetic.bids or synthetic.asks:
+                best_bid = synthetic.best_bid or best_bid
+                best_ask = synthetic.best_ask or best_ask
+
         return MarketSnapshot(
             symbol=self.config.symbol,
             last_price=self._last_price,
@@ -169,6 +184,7 @@ class OrderFlowEngine:
         self.bars.clear()
         self.recent_ticks.clear()
         self._recent_bar_volumes.clear()
+        self.dom_cache.clear()
         self._current_bar = None
         self._bar_index = 0
         self._total_ticks_processed = 0
