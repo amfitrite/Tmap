@@ -27,7 +27,8 @@ from tmap.ui.components.base_canvas import ChartCanvas
 from tmap.ui.components.control_panel import ControlPanel
 from tmap.ui.components.dom_panel import DOMLadderPanel
 from tmap.ui.components.status_bar import TerminalStatusBar
-from tmap.ui.theme import QSS_STYLESHEET
+from tmap.ui.components.toast import show_toast
+from tmap.ui.theme import QSS_STYLESHEET, THEME
 from tmap.utils.logger import get_logger
 
 logger = get_logger("App")
@@ -130,6 +131,7 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
 
         # L2 limit-order ladder reconstructed from the DOM cache inside the engine
         self.dom_panel = DOMLadderPanel(dom_cache=self.engine.dom_cache, parent=chart_area)
+        self.dom_panel.symbol = self.engine.config.symbol
         # Immediately display pre-loaded cached L2 DOM state
         snapshot = self.engine.get_snapshot()
         if snapshot.last_price > 0:
@@ -240,12 +242,23 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         replica tape. Runs in a background QThread so the GUI stays live.
         Negative *hours* forces a fresh MT5 download (skips local cache).
         """
-        if self._history_worker is not None and self._history_worker.isRunning():
-            logger.info("History load already in progress; ignoring duplicate request.")
-            return
+        # Guard against re-entrant clicks. The worker owns NO Qt parent: it is
+        # released via finished -> deleteLater, so keeping a Python reference
+        # to it means the C++ object can be deleted while our handle still
+        # looks non-None. Calling isRunning() on that dangling wrapper raises
+        # RuntimeError (libshiboken: internal C++ object already deleted) —
+        # exactly the crash seen when clicking "Load history" twice. Treat any
+        # access exception as "not running" and drop the stale handle.
+        try:
+            if self._history_worker is not None and self._history_worker.isRunning():
+                logger.info("History load already in progress; ignoring duplicate request.")
+                return
+        except RuntimeError:  # pragma: no cover - Qt lifetime race
+            self._history_worker = None
         self.status_bar.lbl_status.setText(
             f"📥 Loading {abs(hours):g}h of tick history for {self.engine.config.symbol}…")
-        worker = _HistoryLoadWorker(self.engine.config.symbol, hours, self.engine, parent=self)
+        self.status_bar.set_busy(True, "Building limit-order book from tape…")
+        worker = _HistoryLoadWorker(self.engine.config.symbol, hours, self.engine)
         worker.finished_ok.connect(self._on_history_loaded)
         worker.failed.connect(self._on_history_failed)
         worker.finished.connect(worker.deleteLater)
@@ -269,8 +282,13 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
             except Exception as exc:  # pragma: no cover - overlay is optional
                 logger.warning(f"Heatmap backfill failed: {exc}")
                 heat_msg = " · heatmap build failed"
+        self.status_bar.set_busy(False)
         self.status_bar.lbl_status.setText(
             f"✅ Limit-order history loaded: {n_ticks:,} ticks · {n_bars} candles ({source}){heat_msg}")
+        # Fase 4.2: transient toast instead of only a status-log line
+        show_toast(self.canvas,
+                   f"Loaded {n_ticks:,} ticks · {source}",
+                   accent="cyan_info")
         logger.info(f"History load done: {n_ticks} ticks, {n_bars} bars, source={source}")
 
     def _request_heat_frames(self):
@@ -320,9 +338,14 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
     def closeEvent(self, event) -> None:
         if self.feed and self.feed.is_running:
             self.feed.stop()
-        if self._history_worker is not None and self._history_worker.isRunning():
-            self._history_worker.requestInterruption()
-            self._history_worker.wait(3000)
+        # Same dangling-C++-wrapper guard as _load_limit_order_history: the
+        # worker may already be deleteLater'd while our ref lingers.
+        try:
+            if self._history_worker is not None and self._history_worker.isRunning():
+                self._history_worker.requestInterruption()
+                self._history_worker.wait(3000)
+        except RuntimeError:  # pragma: no cover - Qt lifetime race
+            pass
         self.engine.save_cache()
         event.accept()
 
@@ -350,6 +373,17 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    # Fase 1.3: High-DPI crispness on Windows 125%/150% scaling. Must be set
+    # right after QApplication exists (Qt >= 6 already enables these, but we
+    # pin them explicitly for older PySide6 builds).
+    try:
+        from PySide6.QtCore import Qt as _Qt
+        if hasattr(_Qt, "AA_EnableHighDpiScaling"):
+            app.setAttribute(_Qt.AA_EnableHighDpiScaling, True)
+        if hasattr(_Qt, "AA_UseHighDpiPixmaps"):
+            app.setAttribute(_Qt.AA_UseHighDpiPixmaps, True)
+    except Exception:
+        pass
 
     config = EngineConfig(symbol="XAUUSD", ticks_per_bar=50)
     engine = OrderFlowEngine(config=config)

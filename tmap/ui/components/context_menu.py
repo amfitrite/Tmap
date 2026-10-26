@@ -170,6 +170,11 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
         self.act_heat.toggled.connect(lambda on: self._emit("heatmap", on))
         self.addAction(self.act_heat)
 
+        # Fase 4.3: keyboard accelerators for the common toggles
+        self.act_grid.setShortcut("G")
+        self.act_price.setShortcut("P")
+        self.act_heat.setShortcut("H")
+
         self.act_auto = QAction("📐  Auto Fit Price Scale", self, checkable=True)
         self.act_auto.setChecked(auto_scale_visible)
         self.act_auto.setToolTip("Candles always fill the chart proportionally "
