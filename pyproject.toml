@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmap"
+version = "0.1.0"
+authors = [
+    { name = "Tmap Team", email = "sanadayukimura181@gmail.com" },
+]
+description = "Next-Generation High-Performance Order Flow & Market Microstructure Terminal"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["trading", "orderflow", "market-microstructure", "terminal", "heatmap", "cvd", "pyside6"]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "PySide6>=6.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black",
+    "ruff",
+]
+
+[project.scripts]
+tmap = "tmap.ui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tmap*"]
