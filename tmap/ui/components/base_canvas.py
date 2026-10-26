@@ -104,6 +104,19 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
         self._display_cache_key: Optional[tuple] = None
         self._display_bars: List[VolumeBar] = []
 
+        # ---- Bookmap-style liquidity heatmap overlay -----------------------
+        # Frames come from HeatmapBuilder tiles (L2 DOM cache -> disk). The
+        # canvas only paints them; data ownership stays with the app/engine.
+        self.heatmap_visible: bool = True
+        self.heat_frames = []                       # List[HeatFrame] chronological
+        self._heat_time_span: float = 300.0         # seconds of history painted
+        # App-level hook: asked to (re)build & return heat frames on demand.
+        self.on_request_heatmaps: Optional[Callable[[], list]] = None
+        self._heat_last_fetch: float = 0.0
+        self._heat_max_strength: float = 1.0
+        self._heat_frame_seconds: float = 0.0
+        self.tick_size_ref: float = 0.01
+
     def on_tick(self, tick: Tick) -> None:
         self.current_price = tick.price
         if HAS_PYSIDE:
@@ -134,6 +147,19 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
             self.current_bar = current_bar
         if last_price > 0:
             self.current_price = last_price
+        self._heat_last_fetch = 0.0     # force a heatmap refresh on next paint
+        if HAS_PYSIDE:
+            self.update()
+
+    # ------------------------------------------------------ liquidity heat
+    def set_heat_frames(self, frames) -> None:
+        """Install Bookmap-style liquidity heat frames (from HeatmapBuilder)."""
+        self.heat_frames = list(frames or [])
+        mx = 1.0
+        for f in self.heat_frames:
+            for c in f.cells.values():
+                mx = max(mx, c.bid, c.ask)
+        self._heat_max_strength = mx
         if HAS_PYSIDE:
             self.update()
 
@@ -196,11 +222,13 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
             chart_type=self.chart_type,
             grid_visible=self.grid_visible,
             price_line_visible=self.price_line_visible,
+            heatmap_visible=self.heatmap_visible,
             decay_halflife=getattr(self, "dom_half_life_ref", 60.0),
             on_timeframe=self._on_menu_timeframe,
             on_chart_type=self.set_chart_type,
             on_toggle_grid=self._on_menu_grid,
             on_toggle_price_line=self._on_menu_price_line,
+            on_toggle_heatmap=self._on_menu_heatmap,
             on_decay_halflife_changed=self._on_menu_decay,
             on_zoom_in=self.zoom_in,
             on_zoom_out=self.zoom_out,
@@ -229,6 +257,15 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
         self.price_line_visible = bool(on)
         if HAS_PYSIDE:
             self.update()
+
+    def set_heatmap_visible(self, on: bool) -> None:
+        """Toggle the Bookmap-style liquidity heat overlay (menu / API)."""
+        self.heatmap_visible = bool(on)
+        if HAS_PYSIDE:
+            self.update()
+
+    def _on_menu_heatmap(self, on: bool) -> None:
+        self.set_heatmap_visible(on)
 
     def _on_menu_decay(self, half_life: float) -> None:
         """DOM liquidity decay preset — routed through the app-level hook so
@@ -285,6 +322,11 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
             # 2. Draw subtle grid
             self._draw_grid(painter, w, h)
 
+            # 2b. Bookmap-style liquidity heatmap (behind the candles)
+            self._maybe_refresh_heat()
+            if self.heatmap_visible:
+                self._draw_heatmap(painter, w, h)
+
             # 3. Draw bars & volume
             self._draw_bars(painter, w, h)
 
@@ -301,6 +343,99 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
             step_y = 50
             for y in range(0, h, step_y):
                 painter.drawLine(0, y, w, y)
+
+        # ------------------------------------------------ liquidity heatmap
+        def _maybe_refresh_heat(self) -> None:
+            """Pull fresh heat frames from the app hook at most every 2 s."""
+            import time as _time
+            cb = self.on_request_heatmaps
+            if cb is None or not self.heatmap_visible:
+                return
+            now = _time.time()
+            if now - self._heat_last_fetch < 2.0:
+                return
+            self._heat_last_fetch = now
+            try:
+                frames = cb()
+            except Exception:
+                return
+            if frames is not None:
+                self.heat_frames = list(frames)
+                mx = 1.0
+                for f in self.heat_frames:
+                    for c in f.cells.values():
+                        mx = max(mx, c.bid, c.ask)
+                self._heat_max_strength = mx
+
+        def _heat_color(self, strength: float, ask_side: bool) -> QColor:
+            """Bookmap palette: yellow->orange->red for asks, teal->blue for bids."""
+            t = min(1.0, (strength / self._heat_max_strength) ** 0.5)
+            if t < 0.03:
+                return QColor(0, 0, 0, 0)
+            if ask_side:
+                r = 255
+                g = int(220 * (1.0 - t))
+                b = int(60 * (1.0 - t))
+            else:
+                r = int(40 * (1.0 - t))
+                g = int(200 * t + 60)
+                b = int(230 * t + 80)
+            a = int(60 + 170 * t)
+            return QColor(r, g, b, a)
+
+        def _draw_heatmap(self, painter: QPainter, w: int, h: int) -> None:
+            """Paint resting-liquidity heat cells behind the candles.
+
+            Time axis matches the candle layout: newest frame hugs the right
+            edge (base_x) and each frame interval occupies ``scale_x`` pixels,
+            exactly like one bar — so heat ribbons line up with candles.
+            """
+            frames = self.heat_frames
+            if not frames or self.current_price <= 0:
+                return
+            ts = getattr(self, "_heat_frame_seconds", 0.0) or self._heat_frame_seconds_guess()
+            if ts <= 0:
+                return
+            mid_y = h / 2.0 + self.offset_y
+            base_x = w - 100 + self.offset_x
+            tick_size = getattr(self, "tick_size_ref", 0.01) or 0.01
+            bw = max(1.0, self.scale_x * 0.92)
+            t_now = frames[-1].timestamp
+            lo_p = self.current_price - (mid_y / max(self.scale_y, 0.01)) - 1
+            hi_p = self.current_price + (mid_y / max(self.scale_y, 0.01)) + 1
+            painter.setPen(Qt.NoPen)
+            for f in reversed(frames):
+                age = t_now - f.timestamp
+                x = base_x - (age / ts) * self.scale_x
+                if x < -bw:
+                    break
+                if x > w:
+                    continue
+                for idx, cell in f.cells.items():
+                    p = idx * tick_size
+                    if not (lo_p <= p <= hi_p):
+                        continue
+                    y = mid_y - (p - self.current_price) * self.scale_y
+                    row_h = max(1.5, tick_size * self.scale_y * 0.9)
+                    if cell.ask > 0:
+                        col = self._heat_color(cell.ask, True)
+                        if col.alpha():
+                            painter.fillRect(QRectF(x, y - row_h, bw, row_h), col)
+                    if cell.bid > 0:
+                        col = self._heat_color(cell.bid, False)
+                        if col.alpha():
+                            painter.fillRect(QRectF(x, y, bw, row_h), col)
+
+        def _heat_frame_seconds_guess(self) -> float:
+            """Derive the frame interval from the installed frames themselves."""
+            fr = self.heat_frames
+            if len(fr) >= 2:
+                d = fr[1].timestamp - fr[0].timestamp
+                if d > 0:
+                    self._heat_frame_seconds = d
+                    return d
+            self._heat_frame_seconds = self._heat_time_span / 300.0
+            return self._heat_frame_seconds
 
         def _draw_bars(self, painter: QPainter, w: int, h: int) -> None:
             all_bars = self._display_series()

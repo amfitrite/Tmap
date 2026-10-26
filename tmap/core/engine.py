@@ -275,6 +275,10 @@ class OrderFlowEngine:
                         self._last_bid = self.dom_cache.last_bid
                     if self.dom_cache.last_ask > 0:
                         self._last_ask = self.dom_cache.last_ask
+                    # Keep the engine's own tick counter consistent with the
+                    # restored cache so status/RVOL don't double-count history.
+                    self._total_ticks_processed = max(
+                        self._total_ticks_processed, self.dom_cache.ticks_processed)
                     logger.info(
                         f"Restored L2 DOM cache from {self.cache_file} "
                         f"({len(self.dom_cache._bids)} bids, {len(self.dom_cache._asks)} asks)"

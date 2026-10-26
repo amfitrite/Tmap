@@ -148,6 +148,20 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         self.canvas.on_load_history = self._load_limit_order_history
         self._history_worker = None
 
+        # Bookmap-style liquidity heatmap built from the same L2 DOM cache:
+        # historical frames are reconstructed from recorded tape, live frames
+        # stream in via the engine event bus.
+        self.canvas.tick_size_ref = self.engine.config.tick_size
+        try:
+            from tmap.core.heatmap_builder import HeatmapBuilder
+            self.heatmap = HeatmapBuilder(self.engine)
+            self.heatmap.attach()
+            self.canvas.on_request_heatmaps = self._request_heat_frames
+        except Exception as exc:  # pragma: no cover - defensive UI wiring
+            logger.warning(f"Heatmap overlay disabled: {exc}")
+            self.heatmap = None
+            self.canvas.on_request_heatmaps = None
+
         chart_layout.addWidget(self.dom_panel, stretch=0)
 
         layout.addWidget(chart_area, stretch=1)
@@ -237,9 +251,33 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
                                  last_price=snapshot.last_price)
         self.dom_panel.set_last_price(snapshot.last_price)
         self.dom_panel.update_ladder()
+        # Rebuild the Bookmap-style liquidity heat ribbon from the new tape
+        heat_msg = ""
+        if getattr(self, "heatmap", None) is not None:
+            try:
+                frames, tiles = self.heatmap.backfill()   # full recorded tape
+                heat_msg = f" · heatmap {frames:,} frames / {tiles} tiles"
+                self.canvas._heat_last_fetch = 0.0   # force immediate repaint
+            except Exception as exc:  # pragma: no cover - overlay is optional
+                logger.warning(f"Heatmap backfill failed: {exc}")
+                heat_msg = " · heatmap build failed"
         self.status_bar.lbl_status.setText(
-            f"✅ Limit-order history loaded: {n_ticks:,} ticks · {n_bars} candles ({source})")
+            f"✅ Limit-order history loaded: {n_ticks:,} ticks · {n_bars} candles ({source}){heat_msg}")
         logger.info(f"History load done: {n_ticks} ticks, {n_bars} bars, source={source}")
+
+    def _request_heat_frames(self):
+        """Canvas pull-callback: return recent heat frames for the overlay."""
+        if getattr(self, "heatmap", None) is None:
+            return None
+        try:
+            span = self.canvas._heat_time_span
+            lo = self.canvas.current_price - (self.canvas.height() / 2.0
+                                              / max(self.canvas.scale_y, 0.01)) - 5
+            hi = self.canvas.current_price + (self.canvas.height() / 2.0
+                                              / max(self.canvas.scale_y, 0.01)) + 5
+            return self.heatmap.query_recent(span, lo, hi)
+        except Exception:  # pragma: no cover - overlay must never crash paint
+            return None
 
     def _on_history_failed(self, message: str) -> None:
         self.status_bar.lbl_status.setText(f"⚠️ History load failed: {message}")

@@ -50,7 +50,9 @@ def test_load_missing_file_returns_empty(tmp_path):
 
 # -------------------------------------------------------------------- replay
 
-def test_replay_populates_dom_cache_and_candles():
+def test_replay_populates_dom_cache_and_candles(tmp_path, monkeypatch):
+    # Isolate from any leftover dev cache files in ./cache
+    monkeypatch.setattr(EngineConfig, "cache_dir", str(tmp_path))
     cfg = EngineConfig(symbol="TEST", ticks_per_bar=25)
     eng = OrderFlowEngine(config=cfg)
     ticks = M.generate_synthetic_ticks(symbol="TEST", hours_back=0.01, seed=3)
