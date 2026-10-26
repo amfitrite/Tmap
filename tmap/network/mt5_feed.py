@@ -13,8 +13,8 @@ logger = get_logger("MT5Feed")
 
 class MT5TCPFeed(BaseFeed):
     """
-    Bridge client connecting to MetaTrader 5 Expert Advisor (EA) via local TCP socket.
-    Receives raw tick and market depth packets from TmapBridge.mq5.
+    Bridge client/server connecting to MetaTrader 5 Expert Advisor (EA) via local TCP socket.
+    Receives raw tick and market depth packets from TmapBridge.mq5 on port 5555.
 
     Supported wire protocols (one message per line):
     1. JSON lines (documented protocol, README):
@@ -25,13 +25,15 @@ class MT5TCPFeed(BaseFeed):
        DEPTH,<ts>,<bid_p>:<bid_v>|...,<ask_p>:<ask_v>|...
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 5555, reconnect_interval: float = 3.0) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 5555, reconnect_interval: float = 3.0, as_server: bool = True) -> None:
         super().__init__()
         self.host = host
         self.port = port
         self.reconnect_interval = reconnect_interval
+        self.as_server = as_server
 
         self._socket: Optional[socket.socket] = None
+        self._server_socket: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
@@ -40,9 +42,10 @@ class MT5TCPFeed(BaseFeed):
             return
         self._is_running = True
         self._stop_event.clear()
+        target_mode = "server (listening)" if self.as_server else "client (connecting)"
         self._thread = threading.Thread(target=self._connection_loop, name="MT5FeedWorker", daemon=True)
         self._thread.start()
-        logger.info(f"MT5 TCP client started, targeting {self.host}:{self.port}")
+        logger.info(f"MT5 TCP bridge started in {target_mode} on {self.host}:{self.port}")
 
     def stop(self) -> None:
         if not self._is_running:
@@ -54,34 +57,72 @@ class MT5TCPFeed(BaseFeed):
                 self._socket.close()
             except Exception:
                 pass
+        if self._server_socket:
+            try:
+                self._server_socket.close()
+            except Exception:
+                pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.5)
         logger.info("MT5 TCP client stopped.")
 
     def _connection_loop(self) -> None:
+        if self.as_server:
+            self._server_loop()
+        else:
+            self._client_loop()
+
+    def _server_loop(self) -> None:
+        """Run as TCP Server: binds port and accepts connections from MT5 EA."""
+        while not self._stop_event.is_set():
+            try:
+                self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self._server_socket.settimeout(2.0)
+                self._server_socket.bind((self.host, self.port))
+                self._server_socket.listen(1)
+                logger.info(f"MT5 TCP Server listening on {self.host}:{self.port}, waiting for TmapBridge.mq5...")
+
+                while not self._stop_event.is_set():
+                    try:
+                        client_sock, client_addr = self._server_socket.accept()
+                    except socket.timeout:
+                        continue
+                    except Exception:
+                        break
+
+                    logger.info(f"Connected to MT5 EA bridge from {client_addr[0]}:{client_addr[1]}")
+                    self._socket = client_sock
+                    self._socket.settimeout(2.0)
+                    self._read_stream(self._socket)
+                    if self._socket:
+                        try:
+                            self._socket.close()
+                        except Exception:
+                            pass
+                        self._socket = None
+
+            except Exception as e:
+                if not self._stop_event.is_set():
+                    logger.debug(f"Server socket error: {e}, retrying in {self.reconnect_interval}s")
+                    time.sleep(self.reconnect_interval)
+            finally:
+                if self._server_socket:
+                    try:
+                        self._server_socket.close()
+                    except Exception:
+                        pass
+                    self._server_socket = None
+
+    def _client_loop(self) -> None:
+        """Run as TCP Client: connects to an external TCP server."""
         while not self._stop_event.is_set():
             try:
                 self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self._socket.settimeout(2.0)
                 self._socket.connect((self.host, self.port))
                 logger.info(f"Connected to MT5 EA bridge on {self.host}:{self.port}")
-
-                buffer = ""
-                while not self._stop_event.is_set():
-                    try:
-                        data = self._socket.recv(4096).decode("utf-8")
-                        if not data:
-                            break
-                        buffer += data
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
-                            self._parse_line(line.strip())
-                    except socket.timeout:
-                        continue
-                    except Exception as e:
-                        logger.warning(f"MT5 stream read error: {e}")
-                        break
-
+                self._read_stream(self._socket)
             except (ConnectionRefusedError, OSError):
                 time.sleep(self.reconnect_interval)
             finally:
@@ -91,6 +132,23 @@ class MT5TCPFeed(BaseFeed):
                     except Exception:
                         pass
                 self._socket = None
+
+    def _read_stream(self, sock: socket.socket) -> None:
+        buffer = ""
+        while not self._stop_event.is_set():
+            try:
+                data = sock.recv(4096).decode("utf-8")
+                if not data:
+                    break
+                buffer += data
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    self._parse_line(line.strip())
+            except socket.timeout:
+                continue
+            except Exception as e:
+                logger.warning(f"MT5 stream read error: {e}")
+                break
 
     @staticmethod
     def _parse_side(side_str: str) -> TradeSide:
