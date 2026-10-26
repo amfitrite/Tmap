@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 import struct
 import zlib
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -130,7 +131,22 @@ class TileStore:
         return d
 
     def _tile_path(self, symbol: str, start_ts: float) -> str:
-        return os.path.join(self.symbol_dir(symbol), f"t_{int(start_ts)}.tmht")
+        # Tiles live in a per-symbol directory and are named by zero-padded
+        # integer epoch-seconds of their aligned boundary — collision-free
+        # across symbols and stable under lexicographic sorting.
+        return os.path.join(self.symbol_dir(symbol), f"t_{int(start_ts):013d}.tmht")
+
+    def _unique_tile_path(self, symbol: str, start_ts: float) -> str:
+        """Never silently overwrite an existing tile (e.g. two sessions that
+        realign to the same boundary after a DST shift): bump until free."""
+        path = self._tile_path(symbol, start_ts)
+        if not os.path.exists(path):
+            return path
+        base, ext = os.path.splitext(path)
+        n = 1
+        while os.path.exists(f"{base}#{n}{ext}"):
+            n += 1
+        return f"{base}#{n}{ext}"
 
     # -------------------------------------------------------------- tile scan
 
@@ -236,7 +252,7 @@ class TileStore:
                     frames: List[HeatFrame]) -> TileMeta:
         end_ts = frames[-1].timestamp if frames else start_ts
         blob = self.encode(symbol, tick_size, start_ts, end_ts, frames)
-        path = self._tile_path(symbol, start_ts)
+        path = self._unique_tile_path(symbol, start_ts)
         tmp = path + ".tmp"
         with open(tmp, "wb") as fh:
             fh.write(blob)

@@ -6,6 +6,7 @@ try:
 except ImportError:
     HAS_PYSIDE = False
     QStatusBar = object
+    QWidget = object
 
 
 class TerminalStatusBar(QStatusBar if HAS_PYSIDE else object):

@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from dataclasses import asdict, dataclass
 from typing import Any, Dict
@@ -10,6 +11,7 @@ class EngineConfig:
     symbol: str = "XAUUSD"
     tick_size: float = 0.01
     ticks_per_bar: int = 100            # Sealing threshold per bar
+    bar_seconds: float = 0.0            # Optional time-based sealing (0 = disabled)
     max_buffer_bars: int = 5000         # Bounded memory: max bars retained in RAM
     max_recent_ticks: int = 10000       # Bounded raw tick ring buffer
     imbalance_ratio: float = 3.0        # Diagonal footprint imbalance ratio (e.g. 3x = 300%)

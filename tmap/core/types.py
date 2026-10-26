@@ -95,10 +95,13 @@ class VolumeBar:
             self.buy_volume += tick.volume
             self.delta += tick.volume
             self.profile[snapped_price][0] += tick.volume
-        else:
+        elif tick.side == TradeSide.SELL:
             self.sell_volume += tick.volume
             self.delta -= tick.volume
             self.profile[snapped_price][1] += tick.volume
+        else:
+            # UNKNOWN aggressor: count total volume only, never corrupt delta.
+            pass
 
 
 @dataclass

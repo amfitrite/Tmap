@@ -3,7 +3,13 @@ from typing import Optional
 
 try:
     from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import (
+        QApplication,
+        QHBoxLayout,
+        QMainWindow,
+        QVBoxLayout,
+        QWidget,
+    )
     HAS_PYSIDE = True
 except ImportError:
     HAS_PYSIDE = False
@@ -15,6 +21,7 @@ from tmap.core.events import EventType
 from tmap.network.mock_feed import MockMarketFeed
 from tmap.ui.components.base_canvas import ChartCanvas
 from tmap.ui.components.control_panel import ControlPanel
+from tmap.ui.components.dom_panel import DOMLadderPanel
 from tmap.ui.components.status_bar import TerminalStatusBar
 from tmap.ui.theme import QSS_STYLESHEET
 from tmap.utils.logger import get_logger
@@ -64,9 +71,20 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         )
         layout.addWidget(self.control_panel)
 
-        # 2. Main chart canvas
-        self.canvas = ChartCanvas(parent=self)
-        layout.addWidget(self.canvas, stretch=1)
+        # 2. Main chart canvas + Bookmap-style DOM ladder (limit orders) side by side
+        chart_area = QWidget(self)
+        chart_layout = QHBoxLayout(chart_area)
+        chart_layout.setContentsMargins(0, 0, 0, 0)
+        chart_layout.setSpacing(0)
+
+        self.canvas = ChartCanvas(parent=chart_area)
+        chart_layout.addWidget(self.canvas, stretch=1)
+
+        # L2 limit-order ladder reconstructed from the DOM cache inside the engine
+        self.dom_panel = DOMLadderPanel(dom_cache=self.engine.dom_cache, parent=chart_area)
+        chart_layout.addWidget(self.dom_panel, stretch=0)
+
+        layout.addWidget(chart_area, stretch=1)
 
         # 3. Status bar
         self.status_bar = TerminalStatusBar(parent=self)
@@ -100,6 +118,7 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         snapshot = self.engine.get_snapshot()
         self.control_panel.update_snapshot(snapshot)
         self.status_bar.update_ticks(snapshot.total_ticks_processed)
+        self.dom_panel.set_last_price(snapshot.last_price)
 
     def closeEvent(self, event) -> None:
         if self.feed and self.feed.is_running:

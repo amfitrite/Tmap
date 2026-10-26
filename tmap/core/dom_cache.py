@@ -4,6 +4,14 @@ from typing import Dict, List, Optional, Tuple
 from tmap.core.types import MarketDepth, Tick, TradeSide
 
 
+def _decay_factor(elapsed_s: float, half_life_s: float) -> float:
+    """Multiplicative decay applied to liquidity that has not been touched for
+    ``elapsed_s`` seconds. Returns 1.0 when decay is disabled."""
+    if half_life_s <= 0 or elapsed_s <= 0:
+        return 1.0
+    return 2.0 ** (-elapsed_s / half_life_s)
+
+
 @dataclass(slots=True)
 class LiquidityLevel:
     """A single reconstructed price level in the synthetic L2 book."""
@@ -61,6 +69,10 @@ class DOMCache:
         self._last_ask: float = 0.0
         self._last_ts: float = 0.0
         self._ticks_processed: int = 0
+        # Cached prune window: full O(n) scans only when the market moves more
+        # than one tick beyond it; otherwise removals are O(1) boundary peels.
+        self._prune_lo: float = 0.0
+        self._prune_hi: float = 0.0
 
     # ------------------------------------------------------------------ state
 
@@ -94,17 +106,17 @@ class DOMCache:
         lvl = self._get_or_create(books, price, side)
         if lvl is None:
             return
-        lam = self._decay_lambda()
+        # Decay existing volume by the time elapsed SINCE ITS LAST TOUCH only.
+        # last_touch_ts stays untouched here so apply_time_decay() cannot
+        # double-count the same interval (no exponential compounding).
         dt = max(0.0, ts - lvl.last_touch_ts) if lvl.last_touch_ts else 0.0
-        lvl.volume = lvl.volume * (2.0 ** (-dt / self.config.half_life_s)) if self.config.half_life_s > 0 else lvl.volume
-        lvl.volume += amount
+        lvl.volume = lvl.volume * _decay_factor(dt, self.config.half_life_s) + amount
         lvl.raw_volume += amount
         lvl.last_touch_ts = ts
         if kind == "touch":
             lvl.touches += 1
         elif kind == "sweep":
             lvl.sweeps += 1
-        _ = lam  # decay applied via half-life factor above
 
     # --------------------------------------------------------------- ingestion
 
@@ -132,15 +144,28 @@ class DOMCache:
         lo, hi = (prev, price) if prev < price else (price, prev)
         crossed = (hi - lo) > ts * 1.5  # more than one level traversed => sweep
 
+        # Infer aggressor side when the feed does not classify it (UNKNOWN):
+        # a trade at/above the ask is buyer-initiated, at/below the bid seller.
+        side = tick.side
+        if side == TradeSide.UNKNOWN:
+            if tick.ask > 0 and tick.price >= tick.ask:
+                side = TradeSide.BUY
+            elif tick.bid > 0 and tick.price <= tick.bid:
+                side = TradeSide.SELL
+            else:
+                side = TradeSide.BUY if price > prev else (
+                    TradeSide.SELL if price < prev else TradeSide.UNKNOWN
+                )
+
         if not crossed:
             # Plain touch: trade happened at (or beside) the best quote.
             # Credit residual liquidity on the *opposite* side of the aggressor.
-            if tick.side == TradeSide.BUY and tick.ask > 0:
+            if side == TradeSide.BUY and tick.ask > 0:
                 ask_lvl = self._snap(tick.ask)
                 if span_lo <= ask_lvl <= span_hi:
                     self._credit(self._asks, ask_lvl, "ask",
                                  tick.volume * self.config.touch_weight, ts, "touch")
-            elif tick.side == TradeSide.SELL and tick.bid > 0:
+            elif side == TradeSide.SELL and tick.bid > 0:
                 bid_lvl = self._snap(tick.bid)
                 if span_lo <= bid_lvl <= span_hi:
                     self._credit(self._bids, bid_lvl, "bid",
@@ -150,18 +175,19 @@ class DOMCache:
         # Sweep: allocate inferred resting volume across every consumed level.
         steps = max(1, int(round((hi - lo) / ts)))
         share = (tick.volume * self.config.sweep_fill_ratio) / steps
-        if tick.side == TradeSide.BUY:
+        if side == TradeSide.BUY:
             # Buyers swept upward through ASK levels
             for i in range(steps):
                 p = self._snap(lo + i * ts)
                 if span_lo <= p <= span_hi:
                     self._credit(self._asks, p, "ask", share, ts, "sweep")
-        else:
+        elif side == TradeSide.SELL:
             # Sellers swept downward through BID levels
             for i in range(steps):
                 p = self._snap(hi - i * ts)
                 if span_lo <= p <= span_hi:
                     self._credit(self._bids, p, "bid", share, ts, "sweep")
+        # UNKNOWN with no inferable direction: skip directional credit entirely
 
     def process_depth(self, depth: MarketDepth) -> None:
         """Optional true-L2 correction: overwrite estimates when a real book arrives."""
@@ -185,24 +211,68 @@ class DOMCache:
     # ---------------------------------------------------------------- pruning
 
     def _prune_far(self, span_lo: float, span_hi: float) -> None:
-        """Drop levels outside the active window and fully decayed levels."""
-        for books in (self._bids, self._asks):
-            dead = [p for p, l in books.items()
-                    if p < span_lo or p > span_hi
-                    or (l.volume < self.config.min_level_volume and l.touches == 0)]
-            for p in dead:
-                del books[p]
+        """Drop levels outside the active window and fully decayed levels.
+
+        Fast path (common case): when the market moved at most one tick beyond
+        the cached window, only boundary peels are needed — O(removed).
+        Slow path: a large jump or first run does a single full O(n) rebuild.
+        """
+        ts = self.config.tick_size if self.config.tick_size > 0 else 1.0
+        if self._prune_lo == 0.0 and self._prune_hi == 0.0:
+            slow = True  # first call
+        else:
+            # Allow the window to drift by up to 2 ticks before a full rescan;
+            # within that band, peel old edges incrementally instead.
+            slow = (span_lo > self._prune_hi + 2 * ts) or (span_hi < self._prune_lo - 2 * ts) \
+                or (span_lo < self._prune_lo - 2 * ts) or (span_hi > self._prune_hi + 2 * ts)
+
+        if slow:
+            for books in (self._bids, self._asks):
+                dead = [p for p, l in books.items()
+                        if p < span_lo or p > span_hi
+                        or (l.volume < self.config.min_level_volume and l.touches == 0)]
+                for p in dead:
+                    del books[p]
+            self._prune_lo, self._prune_hi = span_lo, span_hi
+            return
+
+        # Incremental peel: remove slivers that fell just outside the new window.
+        for books, lo_old, hi_old in ((self._bids, self._prune_lo, self._prune_hi),
+                                      (self._asks, self._prune_lo, self._prune_hi)):
+            if span_lo > lo_old:
+                for p in [k for k in books if k < span_lo]:
+                    del books[p]
+            if span_hi < hi_old:
+                for p in [k for k in books if k > span_hi]:
+                    del books[p]
+        self._prune_lo = min(self._prune_lo, span_lo)
+        self._prune_hi = max(self._prune_hi, span_hi)
 
     def apply_time_decay(self, now: Optional[float] = None) -> None:
-        """Externally callable decay tick (e.g. from a UI timer) so idle walls fade."""
+        """Externally callable decay tick (e.g. from a UI timer) so idle walls fade.
+
+        IMPORTANT: this must NOT rebaseline ``last_touch_ts`` — doing so makes
+        every subsequent call re-decay the same interval, compounding the decay
+        factor exponentially (walls vanish far too fast). Each level's volume
+        is always derived from its absolute age: ``volume_at_touch * 2^(-age/hl)``.
+        """
         ts = now if now is not None else (self._last_ts or 0.0)
         if ts <= 0:
             return
+        hl = self.config.half_life_s
+        if hl <= 0:
+            return
         for books in (self._bids, self._asks):
-            for lvl in books.values():
-                dt = max(0.0, ts - lvl.last_touch_ts)
-                lvl.volume *= 2.0 ** (-dt / self.config.half_life_s)
-                lvl.last_touch_ts = ts
+            dead: List[float] = []
+            for price, lvl in books.items():
+                if lvl.last_touch_ts <= 0:
+                    continue
+                age = max(0.0, ts - lvl.last_touch_ts)
+                lvl.volume *= _decay_factor(age, hl)
+                if lvl.volume < self.config.min_level_volume and lvl.touches == 0:
+                    dead.append(price)
+            for price in dead:
+                del books[price]
 
     # ----------------------------------------------------------------- output
 
@@ -237,9 +307,56 @@ class DOMCache:
             "ask_walls": sorted(asks, key=lambda x: x[1], reverse=True)[:n],
         }
 
+    # ------------------------------------------------------ limit-order view
+
+    def get_limit_orders(self, min_volume: float = 0.0) -> List[LiquidityLevel]:
+        """Expose reconstructed resting liquidity as a Bookmap-style DOM ladder.
+
+        Each returned ``LiquidityLevel`` represents an *inferred* passive
+        (limit) order pool sitting at that price: how much volume is estimated
+        to be resting there right now (``volume``, decayed), the total volume
+        ever inferred there (``raw_volume``), and how many times aggressive
+        flow touched or swept through it (``touches`` / ``sweeps``).
+
+        Sorted by strength descending so the first entries are the biggest
+        limit walls. ``min_volume`` filters out dust levels.
+        """
+        orders = [lvl for lvl in list(self._bids.values()) + list(self._asks.values())
+                  if lvl.volume > max(min_volume, self.config.min_level_volume)]
+        orders.sort(key=lambda l: l.volume, reverse=True)
+        return orders
+
+    def get_ladder(self, depth: int = 25) -> Dict[str, List[LiquidityLevel]]:
+        """Price-sorted DOM ladder around the market: nearest levels first.
+
+        Returns {"bids": [...descending price...], "asks": [...ascending...]},
+        mimicking the classic DOM ladder layout used by Bookmap's depth rows.
+        """
+        bids = sorted(self._bids.values(), key=lambda l: l.price, reverse=True)
+        asks = sorted(self._asks.values(), key=lambda l: l.price)
+        return {
+            "bids": [l for l in bids if l.volume > self.config.min_level_volume][:depth],
+            "asks": [l for l in asks if l.volume > self.config.min_level_volume][:depth],
+        }
+
+    def total_resting_liquidity(self) -> Dict[str, float]:
+        """Aggregate current (decayed) resting volume per side + imbalance ratio."""
+        bid_vol = sum(l.volume for l in self._bids.values())
+        ask_vol = sum(l.volume for l in self._asks.values())
+        denom = bid_vol + ask_vol
+        return {
+            "bid_volume": bid_vol,
+            "ask_volume": ask_vol,
+            "bid_imbalance": (bid_vol / denom) if denom > 0 else 0.5,
+        }
+
     def clear(self) -> None:
         self._bids.clear()
         self._asks.clear()
         self._last_price = 0.0
+        self._last_bid = 0.0
+        self._last_ask = 0.0
         self._last_ts = 0.0
         self._ticks_processed = 0
+        self._prune_lo = 0.0
+        self._prune_hi = 0.0
