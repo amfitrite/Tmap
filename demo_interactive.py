@@ -1,10 +1,10 @@
 """
 Tmap Interactive Demo — LIVE liquidity heatmap (PySide6, QPainter).
 
-Pipeline (real project modules, accelerated mock feed):
-    MockMarketFeed ticks -> RecordingSession (DOMCache -> frames)
-                         -> TileStore (tiles flushed to disk every 10s)
-                         -> HeatmapCanvas paints viewport via store.query_window()
+Pipeline (real project modules, accelerated mock feed or live MT5):
+    MT5TCPFeed/MockMarketFeed ticks -> RecordingSession (DOMCache -> frames)
+                                   -> TileStore (tiles flushed to disk every 10s)
+                                   -> HeatmapCanvas paints viewport via store.query_window()
 
 Controls:
     drag mouse   : pan time/price
@@ -14,7 +14,8 @@ Controls:
     Q / close    : quit
 
 Usage:
-    python demo_interactive.py [seconds]   # auto-close after N seconds (0 = stay open)
+    python demo_interactive.py          # Interactive mock feed
+    python demo_interactive.py --mt5    # Connect to live MetaTrader 5 Bridge on port 5555
 """
 import math
 import sys
@@ -22,7 +23,7 @@ import tempfile
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QImage, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from tmap.core.heatmap_store import TileStore
@@ -168,7 +169,6 @@ class HeatmapCanvas(QWidget):
                 prev = (x, y)
 
         # overlays
-        from PySide6.QtGui import QFont
         painter.setPen(QColor("#8899aa"))
         painter.setFont(QFont("DejaVu Sans", 9))
         painter.drawText(10, 18, f"Tmap LIVE — {self.symbol} | tiles={len(self.store.list_tiles(self.symbol))} "
@@ -184,7 +184,14 @@ class HeatmapCanvas(QWidget):
 
 
 def main():
-    auto_close = float(sys.argv[1]) if len(sys.argv) > 1 else 0.0
+    use_mt5 = "--mt5" in sys.argv or "--bridge" in sys.argv
+    auto_close = 0.0
+    for arg in sys.argv[1:]:
+        if arg not in ("--mt5", "--bridge", "--mock"):
+            try:
+                auto_close = float(arg)
+            except ValueError:
+                pass
 
     root = tempfile.mkdtemp(prefix="tmap_live_")
     store = TileStore(root=root, tile_seconds=10.0, frame_interval_s=0.25)
@@ -193,13 +200,17 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    feed = MockMarketFeed(symbol="XAUUSD", initial_price=2750.0, tick_interval_ms=20)
+    if use_mt5:
+        from tmap.network.mt5_feed import MT5TCPFeed
+        feed = MT5TCPFeed(host="127.0.0.1", port=5555)
+        title = "Tmap — [MT5 Bridge :5555 LIVE] Interactive Liquidity Heatmap"
+    else:
+        feed = MockMarketFeed(symbol="XAUUSD", initial_price=2750.0, tick_interval_ms=20)
+        title = "Tmap — [Synthetic Mock] Interactive Liquidity Heatmap (use --mt5 for MT5 live)"
 
     win = HeatmapCanvas(store, "XAUUSD")
-    win.setWindowTitle("Tmap — [XAUUSD] Interactive Liquidity Heatmap")
+    win.setWindowTitle(title)
     win.resize(1400, 850)
-
-    t_start = time.time()
 
     def on_tick(tk):
         session.ingest(tk)
@@ -208,7 +219,11 @@ def main():
             win.center_t = tk.timestamp
             win.center_p = tk.price
 
+    def on_depth(dp):
+        session.dom.process_depth(dp)
+
     feed.on_tick = on_tick
+    feed.on_depth = on_depth
     win.show()
     feed.start()
 

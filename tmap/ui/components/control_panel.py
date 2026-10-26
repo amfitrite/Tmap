@@ -2,7 +2,7 @@ from typing import Callable, Optional
 
 try:
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
+    from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
     HAS_PYSIDE = True
 except ImportError:
     HAS_PYSIDE = False
@@ -22,12 +22,16 @@ class ControlPanel(QWidget if HAS_PYSIDE else object):
         self,
         on_toggle_feed: Optional[Callable[[], None]] = None,
         on_reset_view: Optional[Callable[[], None]] = None,
+        on_change_source: Optional[Callable[[str], None]] = None,
+        initial_source: str = "MT5 Bridge (5555)",
         parent: Optional[QWidget] = None,
     ) -> None:
         if HAS_PYSIDE:
             super().__init__(parent)
             self.on_toggle_feed = on_toggle_feed
             self.on_reset_view = on_reset_view
+            self.on_change_source = on_change_source
+            self._initial_source = initial_source
             self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -39,6 +43,24 @@ class ControlPanel(QWidget if HAS_PYSIDE else object):
         self.lbl_brand = QLabel("TMAP")
         self.lbl_brand.setStyleSheet("font-weight: bold; font-size: 13px; color: #3B82F6;")
         layout.addWidget(self.lbl_brand)
+
+        # Feed Source Selector (MT5 Bridge vs Mock Feed)
+        self.lbl_src = QLabel("Source:")
+        self.lbl_src.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        layout.addWidget(self.lbl_src)
+
+        self.combo_source = QComboBox()
+        self.combo_source.addItems(["MT5 Bridge (5555)", "Synthetic Mock Feed"])
+        if self._initial_source in ["MT5 Bridge (5555)", "Synthetic Mock Feed"]:
+            self.combo_source.setCurrentText(self._initial_source)
+        self.combo_source.setStyleSheet(
+            "QComboBox { background: #1A1E26; color: #F9FAFB; border: 1px solid #2B3240; "
+            "border-radius: 4px; padding: 4px 8px; font-weight: 500; font-size: 11px; }"
+            "QComboBox::drop-down { border: none; width: 16px; }"
+            "QComboBox QAbstractItemView { background: #14171D; color: #F9FAFB; selection-background-color: #3B82F6; }"
+        )
+        self.combo_source.currentTextChanged.connect(self._on_source_changed)
+        layout.addWidget(self.combo_source)
 
         # Feed toggle button
         self.btn_feed = QPushButton("⏸ Pause Feed")
@@ -64,6 +86,10 @@ class ControlPanel(QWidget if HAS_PYSIDE else object):
 
         self.lbl_rvol = QLabel("RVOL: 1.0x")
         layout.addWidget(self.lbl_rvol)
+
+    def _on_source_changed(self, text: str) -> None:
+        if self.on_change_source:
+            self.on_change_source(text)
 
     def update_snapshot(self, snapshot: MarketSnapshot) -> None:
         if not HAS_PYSIDE:
