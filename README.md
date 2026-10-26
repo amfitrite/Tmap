@@ -129,9 +129,10 @@ python -m unittest discover -s tests
 - [x] Mock feed untuk development offline
 - [x] Analytics: footprint imbalance, RVOL, VBP
 - [x] **L2 DOM cache** — rekonstruksi order book sintetis dari stream tick (sweep / touch / decay, `tmap/core/dom_cache.py`)
-- [ ] **Heatmap likuiditas ala Bookmap** di ChartCanvas (pita warna waktu×harga)
+- [x] **Heatmap Tile Store** — "Google Maps"-nya likuiditas: riwayat direkam per-tile (60 detik) ke disk dalam format terkompresi (`*.tmht`), sehingga scroll ke masa lalu tetap menampilkan peta limit-order yang pernah terbentuk (`tmap/core/heatmap_store.py`). Query viewport (waktu×harga) lintas tile, atomik, memori terikat.
+- [ ] **Heatmap likuiditas ala Bookmap** di ChartCanvas (pita warna waktu×harga, live + replay dari tile)
 - [ ] EA `TmapBridge.mq5` resmi + dokumentasi setup
-- [ ] Replay sesi dari file tick log
+- [ ] Replay sesi dari file tick log / tile archive
 
 ---
 
