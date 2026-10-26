@@ -102,6 +102,11 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         self.canvas.load_history(list(self.engine.bars), current_bar=self.engine.current_bar,
                                  last_price=snapshot.last_price)
 
+        # Right-click premium settings: DOM liquidity decay preset updates the
+        # live engine cache; timeframe changes refresh the title bar label.
+        self.canvas.on_decay_changed = self._set_dom_halflife
+        self.canvas.on_timeframe_changed = self._on_canvas_timeframe
+
         chart_layout.addWidget(self.dom_panel, stretch=0)
 
         layout.addWidget(chart_area, stretch=1)
@@ -161,6 +166,21 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
 
     def _reset_camera(self) -> None:
         self.canvas.reset_view()
+
+    def _set_dom_halflife(self, half_life_s: float) -> None:
+        """Live-update the DOMCache liquidity decay half-life (right-click menu)."""
+        try:
+            with self.engine._lock:
+                self.engine.dom_cache.config.half_life_s = max(0.0, float(half_life_s))
+            logger.info(f"DOM liquidity decay half-life set to {half_life_s}s")
+        except Exception as exc:  # pragma: no cover - defensive UI hook
+            logger.warning(f"Failed to apply DOM decay preset: {exc}")
+
+    def _on_canvas_timeframe(self, seconds: int) -> None:
+        label = f"{seconds}s" if seconds < 60 else (
+            f"{seconds // 3600}h" if seconds % 3600 == 0 else f"{seconds // 60}m")
+        base = "Native tick bars" if seconds <= 0 else label
+        self.setWindowTitle(f"Tmap — [{self.engine.config.symbol}] Order Flow Terminal · TF {base}")
 
     def _on_metrics_tick(self) -> None:
         snapshot = self.engine.get_snapshot()
