@@ -39,9 +39,12 @@ class ControlPanel(QWidget if HAS_PYSIDE else object):
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(10)
 
-        # Title / Brand
+        # Title / Brand (premium minimal chip; updated via set_brand)
         self.lbl_brand = QLabel("TMAP")
-        self.lbl_brand.setStyleSheet("font-weight: bold; font-size: 13px; color: #3B82F6;")
+        self.lbl_brand.setStyleSheet(
+            "font-weight: bold; font-size: 13px; color: #3B82F6;"
+            "background: #111827; border: 1px solid #1F2937;"
+            "border-radius: 6px; padding: 2px 8px;")
         layout.addWidget(self.lbl_brand)
 
         # Feed Source Selector (MT5 Bridge vs Mock Feed)
@@ -90,6 +93,11 @@ class ControlPanel(QWidget if HAS_PYSIDE else object):
     def _on_source_changed(self, text: str) -> None:
         if self.on_change_source:
             self.on_change_source(text)
+
+    def set_brand(self, symbol: str, tf: Optional[str] = None) -> None:
+        """Update the minimal brand chip (e.g. 'TMAP · XAUUSD · 5m')."""
+        parts = ["TMAP", symbol] + ([tf] if tf else [])
+        self.lbl_brand.setText(" · ".join(parts))
 
     def update_snapshot(self, snapshot: MarketSnapshot) -> None:
         if not HAS_PYSIDE:

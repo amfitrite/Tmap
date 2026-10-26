@@ -48,7 +48,9 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         self.engine = engine
         self.feed = feed or MT5TCPFeed(host="127.0.0.1", port=5555)
 
-        self.setWindowTitle(f"Tmap — [{self.engine.config.symbol}] Order Flow Terminal")
+        # Frameless premium look: empty title bar so the OS chrome shows no
+        # branding (info lives in the in-app toolbar instead).
+        self.setWindowTitle("")
         self.resize(1340, 840)
         self.setStyleSheet(QSS_STYLESHEET)
 
@@ -177,10 +179,16 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
             logger.warning(f"Failed to apply DOM decay preset: {exc}")
 
     def _on_canvas_timeframe(self, seconds: int) -> None:
+        """Reflect the active timeframe in the in-app toolbar brand chip.
+
+        The OS title bar is intentionally kept empty (premium frameless
+        look), so TF/symbol info is surfaced inside the app instead.
+        """
         label = f"{seconds}s" if seconds < 60 else (
             f"{seconds // 3600}h" if seconds % 3600 == 0 else f"{seconds // 60}m")
-        base = "Native tick bars" if seconds <= 0 else label
-        self.setWindowTitle(f"Tmap — [{self.engine.config.symbol}] Order Flow Terminal · TF {base}")
+        base = "Native" if seconds <= 0 else label
+        self.control_panel.set_brand(
+            f"{self.engine.config.symbol}", tf=base)
 
     def _on_metrics_tick(self) -> None:
         snapshot = self.engine.get_snapshot()

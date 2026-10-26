@@ -1,4 +1,5 @@
 """Unit tests for the synthetic L2 DOM cache rebuilt from MT5 ticks."""
+import tempfile
 import unittest
 
 from tmap.core.dom_cache import DOMCache, DOMCacheConfig
@@ -103,7 +104,8 @@ class TestDOMCache(unittest.TestCase):
         from tmap.core.config import EngineConfig
         from tmap.core.engine import OrderFlowEngine
 
-        engine = OrderFlowEngine(EngineConfig(tick_size=0.01, ticks_per_bar=1000))
+        engine = OrderFlowEngine(EngineConfig(tick_size=0.01, ticks_per_bar=1000,
+                                              symbol="TESTDOM", cache_dir=tempfile.mkdtemp()))
         engine.process_tick(mk_tick(1.0, 100.00, 5.0, TradeSide.BUY, bid=99.99, ask=100.00))
         engine.process_tick(mk_tick(2.0, 100.04, 60.0, TradeSide.BUY, bid=100.00, ask=100.04))
         snap = engine.get_snapshot()

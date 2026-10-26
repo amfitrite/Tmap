@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 import time
 from tmap.core.config import EngineConfig
 from tmap.core.engine import OrderFlowEngine
@@ -8,12 +9,17 @@ from tmap.core.types import MarketDepth, Tick, TradeSide
 
 class TestOrderFlowEngine(unittest.TestCase):
     def setUp(self):
+        # Isolated cache dir so persisted candles/DOM from other sessions or
+        # tests never leak into engine state (keeps assertions deterministic).
+        self._cache_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._cache_tmp.cleanup)
         self.config = EngineConfig(
             symbol="XAUUSD",
             tick_size=0.01,
             ticks_per_bar=5,
             max_buffer_bars=10,
             max_recent_ticks=20,
+            cache_dir=self._cache_tmp.name,
         )
         self.engine = OrderFlowEngine(config=self.config)
 
