@@ -49,6 +49,10 @@ class DOMLadderPanel(QWidget if HAS_PYSIDE else object):
     def set_last_price(self, price: float) -> None:
         self.last_price = price
 
+    def update_ladder(self) -> None:
+        if HAS_PYSIDE:
+            self.update()
+
     def _rows(self) -> List[tuple]:
         """Build render rows: (level, kind) where kind in {'bid','ask'}."""
         ladder = self.dom_cache.get_ladder(depth=self.MAX_ROWS)
