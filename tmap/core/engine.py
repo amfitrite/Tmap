@@ -1,6 +1,7 @@
 from collections import deque
 from threading import RLock
 from typing import Deque, Dict, List, Optional
+import os
 import time
 
 from tmap.core.config import EngineConfig
@@ -61,6 +62,11 @@ class OrderFlowEngine:
         # Rolling window for RVOL calculation (running sum keeps compute_rvol O(1))
         self._recent_bar_volumes: Deque[float] = deque(maxlen=self.config.rvol_window)
         self._rvol_sum: float = 0.0
+
+        # Persistent L2 DOM cache configuration & auto-loading
+        self.cache_dir = getattr(self.config, "cache_dir", "cache")
+        self.cache_file = os.path.join(self.cache_dir, f"dom_cache_{self.config.symbol}.json")
+        self._load_cached_dom()
 
     @property
     def current_bar(self) -> Optional[VolumeBar]:
@@ -245,3 +251,31 @@ class OrderFlowEngine:
             self._cvd = 0.0
             self._last_depth = None
             self._last_price = 0.0
+
+    # ------------------------------------------------------------- cache I/O
+
+    def _load_cached_dom(self) -> None:
+        """Attempt to restore previously reconstructed L2 DOM liquidity from disk."""
+        if os.path.exists(self.cache_file):
+            try:
+                if self.dom_cache.load_from_file(self.cache_file):
+                    if self.dom_cache.last_price > 0:
+                        self._last_price = self.dom_cache.last_price
+                    if self.dom_cache.last_bid > 0:
+                        self._last_bid = self.dom_cache.last_bid
+                    if self.dom_cache.last_ask > 0:
+                        self._last_ask = self.dom_cache.last_ask
+                    logger.info(
+                        f"Restored L2 DOM cache from {self.cache_file} "
+                        f"({len(self.dom_cache._bids)} bids, {len(self.dom_cache._asks)} asks)"
+                    )
+            except Exception as e:
+                logger.debug(f"Failed to load DOM cache from {self.cache_file}: {e}")
+
+    def save_cache(self) -> None:
+        """Save current L2 DOM cache state to disk."""
+        with self._lock:
+            try:
+                self.dom_cache.save_to_file(self.cache_file)
+            except Exception as e:
+                logger.debug(f"Failed to save DOM cache: {e}")

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from tmap.core.types import MarketDepth, Tick, TradeSide
 
@@ -79,6 +79,18 @@ class DOMCache:
     @property
     def ticks_processed(self) -> int:
         return self._ticks_processed
+
+    @property
+    def last_price(self) -> float:
+        return self._last_price
+
+    @property
+    def last_bid(self) -> float:
+        return self._last_bid
+
+    @property
+    def last_ask(self) -> float:
+        return self._last_ask
 
     def _snap(self, price: float) -> float:
         ts = self.config.tick_size
@@ -360,3 +372,110 @@ class DOMCache:
         self._ticks_processed = 0
         self._prune_lo = 0.0
         self._prune_hi = 0.0
+
+
+    # ----------------------------------------------------------- persistence
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize reconstructed DOM cache state to dictionary."""
+        return {
+            "last_price": self._last_price,
+            "last_bid": self._last_bid,
+            "last_ask": self._last_ask,
+            "last_ts": self._last_ts,
+            "ticks_processed": self._ticks_processed,
+            "bids": [
+                {
+                    "price": l.price,
+                    "side": l.side,
+                    "volume": l.volume,
+                    "raw_volume": l.raw_volume,
+                    "touches": l.touches,
+                    "sweeps": l.sweeps,
+                    "last_touch_ts": l.last_touch_ts,
+                }
+                for l in self._bids.values()
+            ],
+            "asks": [
+                {
+                    "price": l.price,
+                    "side": l.side,
+                    "volume": l.volume,
+                    "raw_volume": l.raw_volume,
+                    "touches": l.touches,
+                    "sweeps": l.sweeps,
+                    "last_touch_ts": l.last_touch_ts,
+                }
+                for l in self._asks.values()
+            ],
+        }
+
+    def from_dict(self, data: Dict[str, Any], apply_decay_until: Optional[float] = None) -> None:
+        """Restore DOM cache state from dictionary, with optional decay calculation."""
+        self._last_price = float(data.get("last_price", 0.0))
+        self._last_bid = float(data.get("last_bid", 0.0))
+        self._last_ask = float(data.get("last_ask", 0.0))
+        self._last_ts = float(data.get("last_ts", 0.0))
+        self._ticks_processed = int(data.get("ticks_processed", 0))
+
+        now_ts = apply_decay_until if apply_decay_until is not None else self._last_ts
+
+        self._bids.clear()
+        for b in data.get("bids", []):
+            p = float(b["price"])
+            last_ts = float(b.get("last_touch_ts", self._last_ts))
+            elapsed = max(0.0, now_ts - last_ts)
+            decay = _decay_factor(elapsed, self.config.half_life_s)
+            vol = float(b.get("volume", 0.0)) * decay
+            if vol > self.config.min_level_volume:
+                self._bids[p] = LiquidityLevel(
+                    price=p,
+                    side="bid",
+                    volume=vol,
+                    raw_volume=float(b.get("raw_volume", vol)),
+                    touches=int(b.get("touches", 0)),
+                    sweeps=int(b.get("sweeps", 0)),
+                    last_touch_ts=last_ts,
+                )
+
+        self._asks.clear()
+        for a in data.get("asks", []):
+            p = float(a["price"])
+            last_ts = float(a.get("last_touch_ts", self._last_ts))
+            elapsed = max(0.0, now_ts - last_ts)
+            decay = _decay_factor(elapsed, self.config.half_life_s)
+            vol = float(a.get("volume", 0.0)) * decay
+            if vol > self.config.min_level_volume:
+                self._asks[p] = LiquidityLevel(
+                    price=p,
+                    side="ask",
+                    volume=vol,
+                    raw_volume=float(a.get("raw_volume", vol)),
+                    touches=int(a.get("touches", 0)),
+                    sweeps=int(a.get("sweeps", 0)),
+                    last_touch_ts=last_ts,
+                )
+
+    def save_to_file(self, path: str) -> None:
+        """Atomically persist DOM cache state to a JSON file."""
+        import json, os, tempfile
+        dirname = os.path.dirname(os.path.abspath(path))
+        os.makedirs(dirname, exist_ok=True)
+        data = self.to_dict()
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix="dom_", suffix=".tmp")
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+
+    def load_from_file(self, path: str, apply_decay_until: Optional[float] = None) -> bool:
+        """Load DOM cache state from JSON file. Returns True if successfully loaded."""
+        import json, os
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.from_dict(data, apply_decay_until=apply_decay_until)
+            return True
+        except Exception:
+            return False

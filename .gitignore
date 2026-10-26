@@ -54,3 +54,6 @@ ehthumbs.db
 # Temporary logs & node_modules
 *.log
 node_modules/
+
+# Runtime market cache & persistent tiles
+cache/

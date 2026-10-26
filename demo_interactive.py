@@ -18,8 +18,8 @@ Usage:
     python demo_interactive.py --mt5    # Connect to live MetaTrader 5 Bridge on port 5555
 """
 import math
+import os
 import sys
-import tempfile
 import time
 
 from PySide6.QtCore import Qt, QTimer
@@ -193,9 +193,19 @@ def main():
             except ValueError:
                 pass
 
-    root = tempfile.mkdtemp(prefix="tmap_live_")
+    # Persistent cache directories
+    root = os.path.join("cache", "tiles")
+    os.makedirs(root, exist_ok=True)
+    dom_cache_dir = "cache"
+    os.makedirs(dom_cache_dir, exist_ok=True)
+    dom_cache_file = os.path.join(dom_cache_dir, "dom_cache_XAUUSD.json")
+
     store = TileStore(root=root, tile_seconds=10.0, frame_interval_s=0.25)
     session = store.open_session(symbol="XAUUSD", tick_size=TICK_SIZE)
+
+    # Load existing cached L2 DOM state on startup
+    if os.path.exists(dom_cache_file):
+        session.dom.load_from_file(dom_cache_file)
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
@@ -211,6 +221,20 @@ def main():
     win = HeatmapCanvas(store, "XAUUSD")
     win.setWindowTitle(title)
     win.resize(1400, 850)
+
+    # Position viewport on latest cached tiles if available
+    existing_tiles = store.list_tiles("XAUUSD")
+    if existing_tiles:
+        latest = existing_tiles[-1]
+        frames = store.query_window("XAUUSD", latest.start_ts, latest.end_ts, 0.0, 100000.0)
+        if frames:
+            last_f = frames[-1]
+            win.center_t = last_f.timestamp
+            win.center_p = last_f.mid_price
+            win.last_price = last_f.mid_price
+    elif session.dom.last_price > 0:
+        win.center_p = session.dom.last_price
+        win.last_price = session.dom.last_price
 
     def on_tick(tk):
         session.ingest(tk)
@@ -232,7 +256,14 @@ def main():
     rc = app.exec()
     feed.stop()
     tiles = session.finish()
-    print(f"Done. {len(tiles)} tiles written to {root}")
+
+    # Save L2 DOM cache to disk on shutdown
+    try:
+        session.dom.save_to_file(dom_cache_file)
+    except Exception:
+        pass
+
+    print(f"Done. {len(tiles)} tiles saved to {root}")
     sys.exit(rc)
 
 

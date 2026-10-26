@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from typing import Optional
 
@@ -36,6 +37,7 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
     """
     Main application window hosting controls, orderflow chart canvas, and metrics.
     Connects to live MT5 Bridge via TCP port 5555 or synthetic mock feeds.
+    Auto-restores and persists L2 DOM liquidity cache across sessions.
     """
 
     def __init__(self, engine: OrderFlowEngine, feed: Optional[BaseFeed] = None) -> None:
@@ -89,6 +91,12 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
 
         # L2 limit-order ladder reconstructed from the DOM cache inside the engine
         self.dom_panel = DOMLadderPanel(dom_cache=self.engine.dom_cache, parent=chart_area)
+        # Immediately display pre-loaded cached L2 DOM state
+        snapshot = self.engine.get_snapshot()
+        if snapshot.last_price > 0:
+            self.dom_panel.set_last_price(snapshot.last_price)
+        self.dom_panel.update_ladder()
+
         chart_layout.addWidget(self.dom_panel, stretch=0)
 
         layout.addWidget(chart_area, stretch=1)
@@ -158,6 +166,7 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
     def closeEvent(self, event) -> None:
         if self.feed and self.feed.is_running:
             self.feed.stop()
+        self.engine.save_cache()
         event.accept()
 
 
