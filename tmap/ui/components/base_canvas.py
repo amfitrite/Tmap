@@ -96,6 +96,10 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
         # Callback invoked with the chosen timeframe seconds whenever the
         # user picks one from the Candle Interval submenu (wired by the app).
         self.on_timeframe_changed: Optional[Callable[[int], None]] = None
+        # App-level hook for the "Load Limit-Order History" menu action,
+        # invoked with the requested lookback in hours (negative = force
+        # fresh MT5 download). Wired by TmapMainWindow.
+        self.on_load_history: Optional[Callable[[float], None]] = None
         self._menu = None                           # lazily built ChartContextMenu
         self._display_cache_key: Optional[tuple] = None
         self._display_bars: List[VolumeBar] = []
@@ -201,7 +205,14 @@ class ChartCanvas(QWidget if HAS_PYSIDE else object):
             on_zoom_in=self.zoom_in,
             on_zoom_out=self.zoom_out,
             on_reset_view=self.reset_view,
+            on_load_history=self._on_menu_load_history,
         )
+
+    def _on_menu_load_history(self, hours: float) -> None:
+        """Route the 'Load Limit-Order History' action to the app-level hook."""
+        cb = getattr(self, "on_load_history", None)
+        if cb is not None:
+            cb(hours)
 
     def _on_menu_timeframe(self, seconds: int) -> None:
         self.set_timeframe(seconds)

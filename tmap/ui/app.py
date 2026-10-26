@@ -33,6 +33,41 @@ from tmap.utils.logger import get_logger
 logger = get_logger("App")
 
 
+try:
+    from PySide6.QtCore import QThread, Signal as QSignal
+except ImportError:  # pragma: no cover - headless environments
+    QThread = object
+    QSignal = None
+
+
+class _HistoryLoadWorker(QThread):
+    """Background job: acquire MT5 (or synthetic) tick history and replay it
+    through the engine so the L2 DOM cache fills with limit-order data."""
+
+    if QSignal is not None:
+        finished_ok = QSignal(int, int, str)   # ticks, bars, source label
+        failed = QSignal(str)
+
+    def __init__(self, symbol: str, hours: float, engine, parent=None) -> None:
+        super().__init__(parent)
+        self.symbol = symbol
+        self.hours = abs(hours)
+        self.force_download = hours < 0
+        self.engine = engine
+
+    def run(self) -> None:  # noqa: D102 (QThread override)
+        try:
+            from tmap.network.mt5_ticks import get_or_generate_ticks, replay_ticks
+            ticks, source = get_or_generate_ticks(
+                self.symbol, hours_back=self.hours, force_download=self.force_download)
+            n, bars = replay_ticks(ticks, self.engine, chunk_size=20_000)
+            self.engine.save_cache()
+            self.finished_ok.emit(n, bars, source)
+        except Exception as exc:  # pragma: no cover - defensive worker guard
+            logger.exception("History load failed")
+            self.failed.emit(str(exc))
+
+
 class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
     """
     Main application window hosting controls, orderflow chart canvas, and metrics.
@@ -108,6 +143,10 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
         # live engine cache; timeframe changes refresh the title bar label.
         self.canvas.on_decay_changed = self._set_dom_halflife
         self.canvas.on_timeframe_changed = self._on_canvas_timeframe
+        # "Load Limit-Order History": download MT5 ticks (or synthetic fallback)
+        # and replay them into the L2 DOM cache in a background worker thread.
+        self.canvas.on_load_history = self._load_limit_order_history
+        self._history_worker = None
 
         chart_layout.addWidget(self.dom_panel, stretch=0)
 
@@ -169,6 +208,42 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
     def _reset_camera(self) -> None:
         self.canvas.reset_view()
 
+    # --------------------------------------------- limit-order history loader
+
+    def _load_limit_order_history(self, hours: float) -> None:
+        """Right-click menu action: fill the L2 DOM cache with historical tape.
+
+        Tries to download real ticks from the MT5 terminal (MetaTrader5 API);
+        when unavailable falls back to a cached tick file or a synthetic
+        replica tape. Runs in a background QThread so the GUI stays live.
+        Negative *hours* forces a fresh MT5 download (skips local cache).
+        """
+        if self._history_worker is not None and self._history_worker.isRunning():
+            logger.info("History load already in progress; ignoring duplicate request.")
+            return
+        self.status_bar.lbl_status.setText(
+            f"📥 Loading {abs(hours):g}h of tick history for {self.engine.config.symbol}…")
+        worker = _HistoryLoadWorker(self.engine.config.symbol, hours, self.engine, parent=self)
+        worker.finished_ok.connect(self._on_history_loaded)
+        worker.failed.connect(self._on_history_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._history_worker = worker
+        worker.start()
+
+    def _on_history_loaded(self, n_ticks: int, n_bars: int, source: str) -> None:
+        snapshot = self.engine.get_snapshot()
+        # Hydrate chart & DOM ladder immediately with the freshly replayed data
+        self.canvas.load_history(list(self.engine.bars), current_bar=self.engine.current_bar,
+                                 last_price=snapshot.last_price)
+        self.dom_panel.set_last_price(snapshot.last_price)
+        self.dom_panel.update_ladder()
+        self.status_bar.lbl_status.setText(
+            f"✅ Limit-order history loaded: {n_ticks:,} ticks · {n_bars} candles ({source})")
+        logger.info(f"History load done: {n_ticks} ticks, {n_bars} bars, source={source}")
+
+    def _on_history_failed(self, message: str) -> None:
+        self.status_bar.lbl_status.setText(f"⚠️ History load failed: {message}")
+
     def _set_dom_halflife(self, half_life_s: float) -> None:
         """Live-update the DOMCache liquidity decay half-life (right-click menu)."""
         try:
@@ -199,6 +274,9 @@ class TmapMainWindow(QMainWindow if HAS_PYSIDE else object):
     def closeEvent(self, event) -> None:
         if self.feed and self.feed.is_running:
             self.feed.stop()
+        if self._history_worker is not None and self._history_worker.isRunning():
+            self._history_worker.requestInterruption()
+            self._history_worker.wait(3000)
         self.engine.save_cache()
         event.accept()
 

@@ -60,7 +60,18 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
       on_toggle_price_line(bool)
       on_decay_halflife_changed(seconds)
       on_zoom_in() / on_zoom_out() / on_reset_view()
+      on_load_history(hours) : download MT5 tick history (or synthetic
+                               fallback) and replay it into the L2 DOM cache
     """
+
+    # History load presets shown in the "📥 Load Limit-Order History" submenu
+    LOAD_PRESETS: List[Tuple[str, float]] = [
+        ("1 hour", 1.0),
+        ("4 hours", 4.0),
+        ("8 hours", 8.0),
+        ("1 day", 24.0),
+        ("3 days", 72.0),
+    ]
 
     def __init__(
         self,
@@ -79,6 +90,7 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
         on_zoom_in: Optional[Callable[[], None]] = None,
         on_zoom_out: Optional[Callable[[], None]] = None,
         on_reset_view: Optional[Callable[[], None]] = None,
+        on_load_history: Optional[Callable[[float], None]] = None,
     ) -> None:
         if not HAS_PYSIDE:
             raise RuntimeError("PySide6 is required for ChartContextMenu.")
@@ -93,7 +105,21 @@ class ChartContextMenu(QMenu if HAS_PYSIDE else object):
             "zoom_in": on_zoom_in,
             "zoom_out": on_zoom_out,
             "reset": on_reset_view,
+            "load_history": on_load_history,
         }
+
+        # ---- Load limit-order history (MT5 tick download / synthetic) ------
+        load_menu = self.addMenu("📥  Load Limit-Order History")
+        for label, hours in ChartContextMenu.LOAD_PRESETS:
+            act = QAction(label, self)
+            act.triggered.connect(lambda _checked, h=hours: self._emit("load_history", h))
+            load_menu.addAction(act)
+        load_menu.addSeparator()
+        act_mtf = QAction("⬇  Force fresh MT5 download…", self)
+        act_mtf.triggered.connect(lambda: self._emit("load_history", -1.0))
+        load_menu.addAction(act_mtf)
+
+        self.addSeparator()
 
         # ---- Candle Interval submenu -------------------------------------
         tf_menu = self.addMenu("⏱  Candle Interval")
