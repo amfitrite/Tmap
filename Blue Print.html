@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookmap Ultimate Proxy Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #0b0e14;
+            color: #cbd5e1;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-variant-numeric: tabular-nums;
+            font-weight: 500;
+        }
+        
+        /* =========================================
+           DESAIN UI BARU (Tombol Dropdown & Popups)
+           ========================================= */
+        .btn-menu {
+            background: transparent;
+            color: #cbd5e1;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+            border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-menu:hover, .btn-menu.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+
+        .popup-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 12px;
+            min-width: 240px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .popup-menu.show {
+            display: flex;
+            animation: fadeIn 0.15s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .popup-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            font-weight: 500;
+            color: #cbd5e1;
+        }
+
+        .popup-divider {
+            height: 1px;
+            background: #1e293b;
+            margin: 4px 0;
+        }
+
+        /* Toggle Switch CSS */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 32px;
+            height: 18px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .2s;
+            border-radius: 18px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px; width: 14px;
+            left: 2px; bottom: 2px;
+            background-color: white;
+            transition: .2s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #2563eb; }
+        input:checked + .slider:before { transform: translateX(14px); }
+
+        .select-pro {
+            appearance: none;
+            background: #1e293b;
+            color: #cbd5e1;
+            padding: 4px 20px 4px 8px;
+            font-size: 11px;
+            font-weight: 500;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%24%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 4px center;
+        }
+
+        .num-input {
+            background: #0f172a; border: 1px solid #334155; border-radius: 4px;
+            color: inherit; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            padding: 2px 4px; width: 48px; text-align: right; outline: none; transition: border-color 0.15s;
+        }
+        .num-input:focus { border-color: #3b82f6; }
+        .num-input::-webkit-outer-spin-button, .num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+        .btn-action {
+            background: #1e293b; color: #cbd5e1;
+            padding: 6px; border-radius: 4px; font-size: 11px; font-weight: 600;
+            cursor: pointer; text-align: center; transition: background 0.1s;
+        }
+        .btn-action:hover { background: #3b82f6; color: white; }
+
+        /* =========================================
+           KANVAS & CHART LAYOUT
+           ========================================= */
+        #heatmapCanvas, #bubbleCanvas, #uiCanvas, #cvdCanvas, #railCanvas { position: absolute; top: 0; left: 0; }
+        
+        #heatmapCanvas { z-index: 1; transform: translateZ(0); }
+        #bubbleCanvas { z-index: 15; }
+        #uiCanvas { z-index: 20; pointer-events: none; }
+        #cvdCanvas { z-index: 5; pointer-events: none; opacity: 0.95; bottom: 0; top: auto; }
+        #railCanvas { z-index: 25; }
+        
+        #context-menu {
+            display: none; position: absolute; background: #1a2530;
+            border: 1px solid #2d3748; box-shadow: 0 4px 12px rgba(0,0,0,0.8);
+            border-radius: 6px; z-index: 1000; padding: 6px 0; min-width: 160px;
+        }
+        .ctx-item {
+            padding: 10px 16px; font-size: 12px; font-weight: 600; color: #cbd5e1; cursor: pointer;
+            transition: background 0.1s;
+        }
+        .ctx-item:hover { background: #3b82f6; color: white; }
+    </style>
+</head>
+<body>
+
+<div id="context-menu">
+    <div class="ctx-item text-[#3b82f6]" onclick="resetView()">↻ Reset View</div>
+</div>
+
+<div class="flex flex-col h-screen">
+    <!-- Menu Bar Utama -->
+    <div class="min-h-[48px] bg-[#161f2c] border-b border-[#1e293b] flex items-center justify-between px-4 shrink-0 z-30 shadow-lg">
+        
+        <!-- Controls Kiri -->
+        <div class="flex items-center gap-4 py-1 relative" id="menu-container">
+            
+            <!-- Tombol Dropdown Heatmap -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-heatmap')" id="btn-menu-heatmap">Heatmap</button>
+                <div class="popup-menu" id="menu-heatmap">
+                    <div class="popup-row">
+                        <span>Enable Heatmap</span>
+                        <label class="switch"><input type="checkbox" id="toggle-heatmap" checked onchange="toggleFeature('heatmap')"><span class="slider"></span></label>
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row">
+                        <span>Data Mode</span>
+                        <select id="heatmap-mode" class="select-pro" onchange="changeHeatmapMode(this.value)">
+                            <option value="liquidity">Liquidity (Limit)</option><option value="activity">Activity (Market)</option>
+                        </select>
+                    </div>
+                    <div class="popup-row">
+                        <span>Aggregation</span>
+                        <select id="agg-mode" class="select-pro" onchange="changeAggregation(this.value)">
+                            <option value="1">1 ms (Max)</option><option value="10">10 ms</option><option value="50">50 ms</option>
+                            <option value="100">100 ms</option><option value="250" selected>250 ms</option><option value="500">500 ms</option><option value="1000">1 sec</option>
+                        </select>
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Box Width Scale</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="hmWidth-input" min="0.1" max="10" step="0.1" class="num-input text-[#3b82f6]" oninput="syncSliderInput('hmWidth', this.value, 'advanced', 'hmWidth')">
+                                <span class="text-[#3b82f6] text-[10px] w-2">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="hmWidth-slider" min="0.1" max="10" step="0.1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('hmWidth', this.value, 'advanced', 'hmWidth')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Box Height Scale</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="hmHeight-input" min="0.1" max="10" step="0.1" class="num-input text-[#3b82f6]" oninput="syncSliderInput('hmHeight', this.value, 'advanced', 'hmHeight')">
+                                <span class="text-[#3b82f6] text-[10px] w-2">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="hmHeight-slider" min="0.1" max="10" step="0.1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('hmHeight', this.value, 'advanced', 'hmHeight')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Overlap X (px)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="overlapX-input" min="0" max="100" class="num-input text-[#22c55e]" oninput="syncSliderInput('overlapX', this.value, 'advanced', 'overlapX')">
+                                <span class="text-[#22c55e] text-[10px] w-2">px</span>
+                            </div>
+                        </div>
+                        <input type="range" id="overlapX-slider" min="0" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#22c55e]" oninput="syncSliderInput('overlapX', this.value, 'advanced', 'overlapX')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Overlap Y (px)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="overlapY-input" min="0" max="100" class="num-input text-[#22c55e]" oninput="syncSliderInput('overlapY', this.value, 'advanced', 'overlapY')">
+                                <span class="text-[#22c55e] text-[10px] w-2">px</span>
+                            </div>
+                        </div>
+                        <input type="range" id="overlapY-slider" min="0" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#22c55e]" oninput="syncSliderInput('overlapY', this.value, 'advanced', 'overlapY')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Decay Rate (τ)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="decayRate-input" min="1" max="60" class="num-input text-[#3b82f6]" oninput="syncSliderInput('decayRate', this.value, 'advanced', 'decayRate')">
+                                <span class="text-[#3b82f6] text-[10px] w-2">s</span>
+                            </div>
+                        </div>
+                        <input type="range" id="decayRate-slider" min="1" max="60" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('decayRate', this.value, 'advanced', 'decayRate')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Liquidity Contrast</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="contrast-input" min="0.2" max="5.0" step="0.1" class="num-input text-[#f59e0b]" oninput="syncSliderInput('contrast', this.value, 'advanced', 'contrast')">
+                                <span class="text-[#f59e0b] text-[10px] w-2">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="contrast-slider" min="0.2" max="5.0" step="0.1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" oninput="syncSliderInput('contrast', this.value, 'advanced', 'contrast')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Max Color Clipping</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="clipPercentile-input" min="50" max="100" class="num-input text-[#ef4444]" oninput="syncSliderInput('clipPercentile', this.value, 'advanced', 'clipPercentile')">
+                                <span class="text-[#ef4444] text-[10px] w-2">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="clipPercentile-slider" min="50" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#ef4444]" oninput="syncSliderInput('clipPercentile', this.value, 'advanced', 'clipPercentile')">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Bubbles -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-bubbles')" id="btn-menu-bubbles">Bubbles</button>
+                <div class="popup-menu" id="menu-bubbles">
+                    <div class="popup-row">
+                        <span>Enable Bubbles</span>
+                        <label class="switch"><input type="checkbox" id="toggle-bubbles" checked onchange="toggleFeature('bubbles')"><span class="slider"></span></label>
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row">
+                        <span>Visual Mode</span>
+                        <select id="bubble-mode" class="select-pro" onchange="changeBubbleMode(this.value)">
+                            <option value="split">Split Pie (B/S)</option><option value="delta">Net Delta</option><option value="volume">Total Volume</option>
+                        </select>
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Columns per Bubble</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="bubbleGrouping-input" min="1" max="1000" class="num-input text-[#22c55e]" oninput="syncSliderInput('bubbleGrouping', this.value, 'advanced', 'bubbleGrouping')">
+                                <span class="text-[#22c55e] text-[10px] w-2">c</span>
+                            </div>
+                        </div>
+                        <input type="range" id="bubbleGrouping-slider" min="1" max="1000" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#22c55e]" oninput="syncSliderInput('bubbleGrouping', this.value, 'advanced', 'bubbleGrouping')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Min Vol Filter</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="volFilter-input" min="0" max="100" class="num-input text-[#f59e0b]" oninput="syncSliderInput('volFilter', this.value, 'advanced', 'volFilter')">
+                                <span class="text-[#f59e0b] text-[10px] w-2">L</span>
+                            </div>
+                        </div>
+                        <input type="range" id="volFilter-slider" min="0" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" oninput="syncSliderInput('volFilter', this.value, 'advanced', 'volFilter')">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Vol Profile -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-vp')" id="btn-menu-vp">Vol Profile</button>
+                <div class="popup-menu" id="menu-vp">
+                    <div class="popup-row"><span>Enable Vol Profile</span><label class="switch"><input type="checkbox" id="toggle-vp" checked onchange="toggleFeature('vp')"><span class="slider"></span></label></div>
+                    <div class="popup-row"><span>Show Text</span><label class="switch"><input type="checkbox" id="toggle-vpText" onchange="toggleFeature('vpText')"><span class="slider"></span></label></div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row">
+                        <span>Mode</span>
+                        <select id="vpMode" class="select-pro" onchange="changeAdvancedSettings('vpMode', this.value)">
+                            <option value="CLASSIC">Classic</option><option value="DELTA">Delta</option><option value="IMBALANCE" selected>Imbalance</option>
+                        </select>
+                    </div>
+                    <div class="popup-row">
+                        <span>Timeframe</span>
+                        <select id="vpTF" class="select-pro" onchange="changeAdvancedSettings('vpTF', this.value)">
+                            <option value="M1">M1</option><option value="M5">M5</option><option value="M15" selected>M15</option><option value="M30">M30</option><option value="H1">H1</option><option value="H4">H4</option>
+                        </select>
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Count</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="vpCount-input" min="1" max="4" class="num-input text-[#3b82f6]" oninput="syncSliderInput('vpCount', this.value, 'advanced', 'vpCount')">
+                                <span class="text-[#3b82f6] text-[10px] w-2"></span>
+                            </div>
+                        </div>
+                        <input type="range" id="vpCount-slider" min="1" max="4" value="1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('vpCount', this.value, 'advanced', 'vpCount')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Value Area (%)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="vaPct-input" min="50" max="90" step="5" class="num-input text-[#f59e0b]" oninput="syncSliderInput('vaPct', this.value, 'advanced', 'vaPct')">
+                                <span class="text-[#f59e0b] text-[10px] w-2">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="vaPct-slider" min="50" max="90" step="5" value="70" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" oninput="syncSliderInput('vaPct', this.value, 'advanced', 'vaPct')">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Footprint -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-fp')" id="btn-menu-fp">Footprint</button>
+                <div class="popup-menu" id="menu-fp">
+                    <div class="popup-row"><span>Enable Footprint</span><label class="switch"><input type="checkbox" id="toggle-fp" checked onchange="toggleFeature('fp')"><span class="slider"></span></label></div>
+                    <div class="popup-row"><span>Show Text</span><label class="switch"><input type="checkbox" id="toggle-fpText" onchange="toggleFeature('fpText')"><span class="slider"></span></label></div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row">
+                        <span>Mode</span>
+                        <select id="fpMode" class="select-pro" onchange="changeAdvancedSettings('fpMode', this.value)">
+                            <option value="CLASSIC">Classic</option><option value="DELTA">Delta</option><option value="IMBALANCE" selected>Imbalance</option>
+                        </select>
+                    </div>
+                    <div class="popup-row">
+                        <span>Timeframe</span>
+                        <select id="fpTF" class="select-pro" onchange="changeAdvancedSettings('fpTF', this.value)">
+                            <option value="M1">M1</option><option value="M5">M5</option><option value="M15" selected>M15</option><option value="M30">M30</option><option value="H1">H1</option><option value="H4">H4</option>
+                        </select>
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Count</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="fpCount-input" min="1" max="4" class="num-input text-[#3b82f6]" oninput="syncSliderInput('fpCount', this.value, 'advanced', 'fpCount')">
+                                <span class="text-[#3b82f6] text-[10px] w-2"></span>
+                            </div>
+                        </div>
+                        <input type="range" id="fpCount-slider" min="1" max="4" value="1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('fpCount', this.value, 'advanced', 'fpCount')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Stretch</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="fpStretch-input" min="0.5" max="1.5" step="0.05" class="num-input text-[#10b981]" oninput="syncSliderInput('fpStretch', this.value, 'advanced', 'fpStretch')">
+                                <span class="text-[#10b981] text-[10px] w-2">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="fpStretch-slider" min="0.5" max="1.5" step="0.05" value="1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#10b981]" oninput="syncSliderInput('fpStretch', this.value, 'advanced', 'fpStretch')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Body Width (px)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="fpBodyWidth-input" min="2" max="30" class="num-input text-[#f59e0b]" oninput="syncSliderInput('fpBodyWidth', this.value, 'advanced', 'fpBodyWidth')">
+                                <span class="text-[#f59e0b] text-[10px] w-2">px</span>
+                            </div>
+                        </div>
+                        <input type="range" id="fpBodyWidth-slider" min="2" max="30" value="12" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" oninput="syncSliderInput('fpBodyWidth', this.value, 'advanced', 'fpBodyWidth')">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Indicators -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-indicators')" id="btn-menu-indicators">Indicators</button>
+                <div class="popup-menu" id="menu-indicators">
+                    <div class="popup-row"><span>CVD Chart</span><label class="switch"><input type="checkbox" id="toggle-cvd" checked onchange="toggleFeature('cvd')"><span class="slider"></span></label></div>
+                    <div class="popup-row"><span>GEX Levels</span><label class="switch"><input type="checkbox" id="toggle-gex" checked onchange="toggleFeature('gex')"><span class="slider"></span></label></div>
+                    <div class="popup-row"><span>VWAP Line</span><label class="switch"><input type="checkbox" id="toggle-vwap" onchange="toggleFeature('vwap')"><span class="slider"></span></label></div>
+                    <div class="popup-divider"></div>
+                    <div class="btn-action" onclick="resetCVD(); closeAllMenus()">Reset Data CVD</div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Order Book (COB Proxy) -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-cob')" id="btn-menu-cob">Order Book</button>
+                <div class="popup-menu" id="menu-cob">
+                    <div class="popup-row"><span>Enable Proxy</span><label class="switch"><input type="checkbox" id="toggle-cob" onchange="toggleFeature('cob')"><span class="slider"></span></label></div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Max Length (px)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="cobLength-input" min="50" max="800" class="num-input text-[#3b82f6]" oninput="syncSliderInput('cobLength', this.value, 'advanced', 'cobLength')">
+                                <span class="text-[#3b82f6] text-[10px] w-2">px</span>
+                            </div>
+                        </div>
+                        <input type="range" id="cobLength-slider" min="50" max="800" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('cobLength', this.value, 'advanced', 'cobLength')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Opacity (%)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="cobOpacity-input" min="10" max="100" class="num-input text-[#f59e0b]" oninput="syncSliderInput('cobOpacity', this.value, 'advanced', 'cobOpacity')">
+                                <span class="text-[#f59e0b] text-[10px] w-2">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="cobOpacity-slider" min="10" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" oninput="syncSliderInput('cobOpacity', this.value, 'advanced', 'cobOpacity')">
+                    </div>
+                    <div class="popup-row">
+                        <span>Color Mode</span>
+                        <select id="cob-mode" class="select-pro" onchange="changeAdvancedSettings('cobMode', this.value)">
+                            <option value="heatmap">Heatmap</option><option value="bidask">Bid / Ask</option><option value="solid">Solid White</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Simulation Engine -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-sim')" id="btn-menu-sim">Simulation</button>
+                <div class="popup-menu" id="menu-sim">
+                    <div class="text-center text-[#8b5cf6] font-bold text-[10px] uppercase tracking-wider mb-2 mt-1">Synthetic Data Only</div>
+                    
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Round Level Bias</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="simRoundBias-input" min="0" max="10" step="0.5" class="num-input text-[#8b5cf6]" oninput="syncSliderInput('simRoundBias', this.value, 'sim', 'simRoundBias')">
+                                <span class="text-[#8b5cf6] text-[10px] w-2">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="simRoundBias-slider" min="0" max="10" step="0.5" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#8b5cf6]" oninput="syncSliderInput('simRoundBias', this.value, 'sim', 'simRoundBias')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>DOM Volatility</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="simDomVol-input" min="0" max="20" step="0.5" class="num-input text-[#14b8a6]" oninput="syncSliderInput('simDomVol', this.value, 'sim', 'simDomVol')">
+                                <span class="text-[#14b8a6] text-[10px] w-2"></span>
+                            </div>
+                        </div>
+                        <input type="range" id="simDomVol-slider" min="0" max="20" step="0.5" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#14b8a6]" oninput="syncSliderInput('simDomVol', this.value, 'sim', 'simDomVol')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>On-Touch Absorb</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="simAbsorb-input" min="0" max="100" class="num-input text-[#ef4444]" oninput="syncSliderInput('simAbsorb', this.value, 'sim', 'simAbsorb')">
+                                <span class="text-[#ef4444] text-[10px] w-2">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="simAbsorb-slider" min="0" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#ef4444]" oninput="syncSliderInput('simAbsorb', this.value, 'sim', 'simAbsorb')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Pull (Spoof)</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="simSpoof-input" min="0" max="100" class="num-input text-[#f97316]" oninput="syncSliderInput('simSpoof', this.value, 'sim', 'simSpoof')">
+                                <span class="text-[#f97316] text-[10px] w-2">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="simSpoof-slider" min="0" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f97316]" oninput="syncSliderInput('simSpoof', this.value, 'sim', 'simSpoof')">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Quant Maker -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-quant')" id="btn-menu-quant">Quant Maker</button>
+                <div class="popup-menu" id="menu-quant">
+                    <div class="text-center text-[#cbd5e1] font-bold text-[10px] uppercase tracking-wider my-2">Feature Coming Soon</div>
+                </div>
+            </div>
+
+            <!-- Tombol Dropdown Tick Chart -->
+            <div class="relative">
+                <button class="btn-menu" onclick="toggleMenu('menu-tick')" id="btn-menu-tick">Tick Chart</button>
+                <div class="popup-menu" id="menu-tick">
+                    <div class="text-center text-[#cbd5e1] font-bold text-[10px] uppercase tracking-wider my-2">Feature Coming Soon</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Indikator Kanan -->
+        <div class="flex items-center ml-auto gap-4">
+            <div class="relative">
+                <button class="bg-[#1e293b] p-1.5 rounded hover:bg-[#3b82f6] cursor-pointer transition text-[#94a3b8] hover:text-white border border-[#334155]" onclick="toggleMenu('menu-settings')" id="btn-menu-settings" data-tooltip="Global Settings">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+                <div class="popup-menu" id="menu-settings" style="right: 0; left: auto; min-width: 240px;">
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Global Stabilization</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="stabGlobal-input" min="0" max="100" class="num-input text-[#3b82f6]" oninput="syncSliderInput('stabGlobal', this.value, 'advanced', 'stabGlobal')">
+                                <span class="text-[#3b82f6] text-[10px] w-2">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="stabGlobal-slider" min="0" max="100" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('stabGlobal', this.value, 'advanced', 'stabGlobal')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Imbalance Ratio</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="imbRatio-input" min="1.0" max="10.0" step="0.1" class="num-input text-[#3b82f6]" oninput="syncSliderInput('imbRatio', this.value, 'advanced', 'imbRatio')">
+                                <span class="text-[#3b82f6] text-[10px] w-2">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="imbRatio-slider" min="1.0" max="10.0" step="0.1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#2563eb]" oninput="syncSliderInput('imbRatio', this.value, 'advanced', 'imbRatio')">
+                    </div>
+                    <div class="popup-row flex-col !items-start gap-2">
+                        <div class="flex justify-between w-full items-center">
+                            <span>Min Imbalance Vol</span>
+                            <div class="flex items-center gap-1">
+                                <input type="number" id="imbMinVol-input" min="0" max="1000" step="1" class="num-input text-[#f59e0b]" oninput="syncSliderInput('imbMinVol', this.value, 'advanced', 'imbMinVol')">
+                                <span class="text-[#f59e0b] text-[10px] w-2"></span>
+                            </div>
+                        </div>
+                        <input type="range" id="imbMinVol-slider" min="0" max="1000" step="1" class="w-full h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" oninput="syncSliderInput('imbMinVol', this.value, 'advanced', 'imbMinVol')">
+                    </div>
+                    <div class="popup-divider"></div>
+                    <div class="btn-action !bg-[#991b1b] hover:!bg-[#dc2626]" onclick="factoryReset()">⚠️ Factory Reset</div>
+                </div>
+            </div>
+
+            <button class="bg-[#1e293b] p-1.5 rounded hover:bg-[#3b82f6] cursor-pointer transition text-[#94a3b8] hover:text-white border border-[#334155]" onclick="resetView()" data-tooltip="Reset View">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Workspace -->
+    <div class="flex-1 flex min-h-0 relative w-full">
+        <!-- Main Chart Area -->
+        <div id="main-chart" class="flex-1 relative border-r border-[#1e293b] cursor-crosshair overflow-hidden">
+            <canvas id="heatmapCanvas"></canvas>
+            <canvas id="bubbleCanvas"></canvas>
+            <canvas id="cvdCanvas"></canvas>
+            <canvas id="uiCanvas"></canvas>
+            
+            <div id="crosshair-v" class="absolute top-0 w-px bg-[#64748b] border-l border-dashed border-[#94a3b8] pointer-events-none hidden" style="z-index: 50;"></div>
+            <div id="crosshair-h" class="absolute left-0 h-px bg-[#64748b] border-t border-dashed border-[#94a3b8] pointer-events-none hidden" style="z-index: 50;"></div>
+            
+            <button id="btn-jump-to-live" class="absolute bottom-6 right-6 bg-[#2563eb] text-white w-12 h-12 rounded-full shadow-[0_0_15px_rgba(37,99,235,0.6)] hover:bg-[#3b82f6] hover:scale-105 transition-all duration-200 z-[100] hidden flex items-center justify-center group" onclick="resetView()" title="Jump to Live Data">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:translate-x-1 transition-transform"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+            </button>
+        </div>
+
+        <!-- Right Rail: Axis, Volume Profile, Footprint -->
+        <div id="rail" class="flex-none bg-[#0b0e14] border-l border-[#1e293b] relative overflow-hidden" style="width: 64px;">
+            <canvas id="railCanvas" class="absolute left-0 top-0"></canvas>
+            <div id="crosshair-price" class="absolute bg-[#2563eb] text-white text-[10px] py-0.5 rounded shadow-lg pointer-events-none hidden font-mono font-bold text-center" style="z-index: 50;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // LOGIKA UI & POPUP MENUS
+    // ==========================================
+    let currentOpenMenu = null;
+
+    function toggleMenu(menuId) {
+        const menu = document.getElementById(menuId);
+        const btn = document.getElementById('btn-' + menuId);
+        
+        if (currentOpenMenu && currentOpenMenu !== menuId) {
+            document.getElementById(currentOpenMenu).classList.remove('show');
+            document.getElementById('btn-' + currentOpenMenu).classList.remove('active');
+        }
+        if (menu.classList.contains('show')) {
+            menu.classList.remove('show');
+            btn.classList.remove('active');
+            currentOpenMenu = null;
+        } else {
+            menu.classList.add('show');
+            btn.classList.add('active');
+            currentOpenMenu = menuId;
+        }
+    }
+
+    function closeAllMenus() {
+        if (currentOpenMenu) {
+            document.getElementById(currentOpenMenu).classList.remove('show');
+            document.getElementById('btn-' + currentOpenMenu).classList.remove('active');
+            currentOpenMenu = null;
+        }
+    }
+
+    document.addEventListener('click', (e) => {
+        if (currentOpenMenu) {
+            const menuEl = document.getElementById(currentOpenMenu);
+            const btnEl = document.getElementById('btn-' + currentOpenMenu);
+            if (!menuEl.contains(e.target) && !btnEl.contains(e.target)) {
+                closeAllMenus();
+            }
+        }
+    });
+
+    // ==========================================
+    // LOGIKA SETTINGS & ENGINE
+    // ==========================================
+    let settings = {
+        heatmap: true, heatmapMode: 'liquidity', hmWidth: 1, hmHeight: 1, overlapX: 30, overlapY: 0,
+        bubbles: true, bubbleMode: 'split', bubbleGrouping: 10,
+        cvd: true, gex: true, vwap: false, stabGlobal: 80,
+        cob: false, cobLength: 150, cobOpacity: 80, cobMode: 'heatmap',
+        colorScale: 'linear', decayRate: 10, volFilter: 0, contrast: 1.0, clipPercentile: 99,
+        simRoundBias: 4, simDomVol: 5, simAbsorb: 80, simSpoof: 20,
+        vp: true, vpMode: 'IMBALANCE', vpCount: 1, vpTF: 'M15', vpText: false, vaPct: 70,
+        fp: true, fpMode: 'IMBALANCE', fpCount: 1, fpTF: 'M15', fpText: false, fpStretch: 1.0, fpBodyWidth: 12,
+        imbRatio: 2.5, imbMinVol: 15
+    };
+    
+    try {
+        const saved = localStorage.getItem('bmProxySettings');
+        if (saved) settings = { ...settings, ...JSON.parse(saved) };
+        document.addEventListener("DOMContentLoaded", () => {
+            ['heatmap', 'bubbles', 'cvd', 'gex', 'vwap', 'cob', 'vp', 'vpText', 'fp', 'fpText'].forEach(f => {
+                const toggleInput = document.getElementById(`toggle-${f}`);
+                if (toggleInput) toggleInput.checked = settings[f];
+                if (f === 'cvd' && !settings[f]) document.getElementById('cvdCanvas').style.display = 'none';
+            });
+            ['heatmap-mode', 'bubble-mode', 'color-scale', 'vpMode', 'vpTF', 'fpMode', 'fpTF'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    let key = id.replace(/-([a-z])/g, g => g[1].toUpperCase());
+                    if(id === 'heatmap-mode') key = 'heatmapMode';
+                    if(id === 'bubble-mode') key = 'bubbleMode';
+                    if(id === 'color-scale') key = 'colorScale';
+                    el.value = settings[key];
+                }
+            });
+
+            const pairedElements = [
+                { id: 'hmWidth', key: 'hmWidth', def: 1 },
+                { id: 'hmHeight', key: 'hmHeight', def: 1 },
+                { id: 'overlapX', key: 'overlapX', def: 30 },
+                { id: 'overlapY', key: 'overlapY', def: 0 },
+                { id: 'decayRate', key: 'decayRate', def: 10 },
+                { id: 'contrast', key: 'contrast', def: 1.0 },
+                { id: 'clipPercentile', key: 'clipPercentile', def: 99 },
+                { id: 'bubbleGrouping', key: 'bubbleGrouping', def: 10 },
+                { id: 'volFilter', key: 'volFilter', def: 0 },
+                { id: 'cobLength', key: 'cobLength', def: 150 },
+                { id: 'cobOpacity', key: 'cobOpacity', def: 80 },
+                { id: 'simRoundBias', key: 'simRoundBias', def: 4 },
+                { id: 'simDomVol', key: 'simDomVol', def: 5 },
+                { id: 'simAbsorb', key: 'simAbsorb', def: 80 },
+                { id: 'simSpoof', key: 'simSpoof', def: 20 },
+                { id: 'stabGlobal', key: 'stabGlobal', def: 80 },
+                { id: 'vpCount', key: 'vpCount', def: 1 },
+                { id: 'vaPct', key: 'vaPct', def: 70 },
+                { id: 'fpCount', key: 'fpCount', def: 1 },
+                { id: 'fpStretch', key: 'fpStretch', def: 1.0 },
+                { id: 'fpBodyWidth', key: 'fpBodyWidth', def: 12 },
+                { id: 'imbRatio', key: 'imbRatio', def: 2.5 },
+                { id: 'imbMinVol', key: 'imbMinVol', def: 15 }
+            ];
+            
+            pairedElements.forEach(el => {
+                let val = settings[el.key] !== undefined ? settings[el.key] : el.def;
+                let slider = document.getElementById(el.id + '-slider');
+                let input = document.getElementById(el.id + '-input');
+                
+                let actionType = el.key.startsWith('sim') ? 'sim' : 'advanced';
+
+                if (slider) {
+                    slider.value = val;
+                    slider.addEventListener('dblclick', () => {
+                        slider.value = el.def; 
+                        if (input) input.value = el.def; 
+                        syncSliderInput(el.id, el.def, actionType, el.key);
+                    });
+                }
+                if (input) {
+                    input.value = val;
+                    input.addEventListener('dblclick', () => {
+                        input.value = el.def; 
+                        if (slider) slider.value = el.def; 
+                        syncSliderInput(el.id, el.def, actionType, el.key);
+                    });
+                }
+            });
+        });
+    } catch(e) {}
+
+    function saveSettings() { localStorage.setItem('bmProxySettings', JSON.stringify(settings)); }
+    
+    function factoryReset() {
+        localStorage.removeItem('bmProxySettings');
+        closeAllMenus();
+        location.reload(); 
+    }
+
+    function syncSliderInput(id, val, action, key) {
+        let numVal = parseFloat(val);
+        if(isNaN(numVal)) return;
+
+        let s = document.getElementById(id + '-slider');
+        let i = document.getElementById(id + '-input');
+        
+        if (s && document.activeElement !== s) s.value = val;
+        if (i && document.activeElement !== i) i.value = val;
+
+        if (action === 'sim') {
+            settings[key] = numVal;
+            restingDOM = {};
+        } else {
+            settings[key] = numVal;
+        }
+        
+        if(['vpCount', 'vaPct', 'fpCount', 'fpStretch', 'fpBodyWidth', 'imbRatio', 'imbMinVol'].includes(key)) {
+            needsRedrawRail = true;
+        }
+
+        saveSettings(); 
+        needsRedrawMain = true;
+    }
+
+    function toggleFeature(feature) {
+        settings[feature] = !settings[feature];
+        if (feature === 'cvd') document.getElementById('cvdCanvas').style.display = settings.cvd ? 'block' : 'none';
+        if (['vp', 'fp'].includes(feature)) resize();
+        saveSettings(); needsRedrawMain = true; needsRedrawRail = true;
+    }
+    
+    function changeBubbleMode(mode) { settings.bubbleMode = mode; saveSettings(); needsRedrawMain = true; }
+    function changeHeatmapMode(mode) { settings.heatmapMode = mode; saveSettings(); needsRedrawMain = true; }
+    
+    function changeAdvancedSettings(key, val) { 
+        settings[key] = isNaN(val) ? val : (isNaN(parseFloat(val)) ? val : parseFloat(val)); 
+        saveSettings(); needsRedrawMain = true; needsRedrawRail = true;
+    }
+
+    function resetCVD() { cumulativeCVD = 0; needsRedrawMain = true; closeAllMenus(); }
+
+    const canvases = {
+        heatmap: document.getElementById('heatmapCanvas'), bubble: document.getElementById('bubbleCanvas'),
+        cvd: document.getElementById('cvdCanvas'), ui: document.getElementById('uiCanvas'),
+        rail: document.getElementById('railCanvas')
+    };
+    const ctx = {
+        heatmap: canvases.heatmap.getContext('2d'), bubble: canvases.bubble.getContext('2d'),
+        cvd: canvases.cvd.getContext('2d'), ui: canvases.ui.getContext('2d'), rail: canvases.rail.getContext('2d')
+    };
+    
+    const mainChartEl = document.getElementById('main-chart');
+    const railEl = document.getElementById('rail');
+    const ctxMenu = document.getElementById('context-menu');
+
+    let width = 0, height = 0, cvdHeight = 0;
+    
+    // Layout Constants
+    const AXIS_W = 64;
+    const VP_W = 160;
+    const FP_W = 240;
+    let RAIL_W = AXIS_W;
+    
+    let needsRedrawMain = true;
+    let needsRedrawRail = true;
+
+    function resize() {
+        if(!mainChartEl) return;
+        
+        RAIL_W = AXIS_W;
+        if (settings.vp) RAIL_W += VP_W;
+        if (settings.fp) RAIL_W += FP_W;
+        railEl.style.width = RAIL_W + 'px';
+        
+        const totalW = mainChartEl.clientWidth;
+        const totalH = mainChartEl.clientHeight;
+        
+        width = Math.max(1, totalW);
+        height = Math.max(1, totalH * 0.75);
+        cvdHeight = Math.max(1, totalH * 0.25);
+        
+        canvases.heatmap.width = width; canvases.heatmap.height = height;
+        canvases.bubble.width = width; canvases.bubble.height = height;
+        canvases.ui.width = width; canvases.ui.height = height;
+        canvases.cvd.width = width; canvases.cvd.height = cvdHeight;
+        
+        canvases.rail.width = RAIL_W; canvases.rail.height = totalH;
+        
+        needsRedrawMain = true;
+        needsRedrawRail = true;
+    }
+    window.addEventListener('resize', resize);
+    
+    // Ensure initial layout computation finishes
+    setTimeout(resize, 50);
+
+    mainChartEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        ctxMenu.style.left = e.clientX + 'px'; ctxMenu.style.top = e.clientY + 'px';
+        ctxMenu.style.display = 'block';
+    });
+    window.addEventListener('click', (e) => { if(e.button !== 2 && e.target.id !== 'context-menu') ctxMenu.style.display = 'none'; });
+
+    let isDragging = false, dragStartX = 0, dragStartY = 0;
+    let offsetX = -150, offsetY = 0;
+    let visOffsetX_Global = -150;
+    let visOffsetY_Global = 0, visPrice_Global = 2000.0;
+    let zoomX = 1.0, zoomY = 1.0;
+    let crosshairX = -1, crosshairY = -1;
+    let isAutoScrolling = true;
+
+    function resetView() {
+        offsetX = -150; offsetY = 0; zoomX = 1.0; zoomY = 1.0;
+        visOffsetX_Global = offsetX;
+        visOffsetY_Global = 0; visPrice_Global = currentPrice;
+        isAutoScrolling = true; needsRedrawMain = true; needsRedrawRail = true; ctxMenu.style.display = 'none'; closeAllMenus();
+    }
+
+    mainChartEl.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        dragStartX = e.clientX - offsetX; dragStartY = e.clientY - offsetY;
+        mainChartEl.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mouseup', () => { isDragging = false; mainChartEl.style.cursor = 'crosshair'; });
+
+    mainChartEl.addEventListener('mousemove', (e) => {
+        const rect = mainChartEl.getBoundingClientRect();
+        if (isDragging) {
+            offsetX = e.clientX - dragStartX; offsetY = e.clientY - dragStartY;
+            isAutoScrolling = (offsetX <= 0);
+            needsRedrawMain = true;
+            needsRedrawRail = true;
+        }
+        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.top + height) {
+            crosshairX = e.clientX - rect.left; crosshairY = e.clientY - rect.top;
+            updateCrosshair();
+        } else hideCrosshair();
+    });
+
+    mainChartEl.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomSensitivity = 0.002;
+        if (e.ctrlKey) {
+            let prevZoom = zoomY;
+            zoomY -= e.deltaY * zoomSensitivity; zoomY = Math.max(0.2, Math.min(zoomY, 5));
+            let priceHover = visPrice_Global - (crosshairY - (height / 2) - visOffsetY_Global) / ((12*prevZoom) / 0.5);
+            offsetY = crosshairY - (height / 2) - (currentPrice - priceHover) * ((12*zoomY) / 0.5);
+            isAutoScrolling = (offsetX <= 0);
+        } else {
+            let prevZoomX = zoomX;
+            if(e.deltaX !== 0) {
+                offsetX -= e.deltaX * 0.5;
+            } else {
+                zoomX -= e.deltaY * zoomSensitivity; zoomX = Math.max(0.2, Math.min(zoomX, 5));
+                let ratio = crosshairX / width;
+                offsetX = offsetX + (width * prevZoomX - width * zoomX) * ratio;
+            }
+            isAutoScrolling = (offsetX <= 0);
+        }
+        needsRedrawMain = true; needsRedrawRail = true; updateCrosshair();
+    }, { passive: false });
+
+    function updateCrosshair() {
+        if (crosshairX < 0 || crosshairY < 0) return;
+        const chV = document.getElementById('crosshair-v'), chH = document.getElementById('crosshair-h'), chP = document.getElementById('crosshair-price');
+        chV.style.left = crosshairX + 'px'; chV.style.height = height + 'px';
+        chH.style.top = crosshairY + 'px'; chH.style.width = width + 'px';
+        chV.classList.remove('hidden'); chH.classList.remove('hidden');
+        
+        let priceAtCursor = visPrice_Global - (crosshairY - (height / 2) - visOffsetY_Global) / ((12*zoomY) / 0.5);
+        chP.innerText = priceAtCursor.toFixed(2);
+        
+        chP.style.left = (width + 4) + 'px';
+        chP.style.width = (AXIS_W - 8) + 'px';
+        chP.style.top = Math.max(0, crosshairY - 10) + 'px';
+        chP.classList.remove('hidden');
+    }
+    
+    function hideCrosshair() {
+        document.getElementById('crosshair-v').classList.add('hidden');
+        document.getElementById('crosshair-h').classList.add('hidden');
+        document.getElementById('crosshair-price').classList.add('hidden');
+    }
+
+    const TICK_SIZE = 0.5;
+    let AGGREGATION_MS = 250;
+    
+    let currentPrice = 2000.0;
+    let lastTickPrice = currentPrice;
+    
+    let tickBuffer = [];
+    let historyColumns = [];
+    let historicalVolumes = [];
+    
+    const MAX_COLS = 15000;
+    let cumulativeCVD = 0;
+    
+    let sessionVolume = 0;
+    let sessionPriceVolume = 0;
+    
+    let globalActivityState = {}, restingDOM = {};
+    let histMaxActivity = [], histMaxLiquidity = [];
+    let cachedQ30_Act = 1, cachedQ80_Act = 1, cachedQ95_Act = 1, cachedQ99_Act = 1, cachedQ_Clip_Act = 1, lastQ95Update = 0;
+    let cachedQ30_Liq = 1, cachedQ80_Liq = 1, cachedQ95_Liq = 1, cachedQ99_Liq = 1, cachedQ_Clip_Liq = 1;
+
+    // Footprint & VP Data
+    let baseCandles = [];
+    let fpCandles = [];
+    let currentFp = null;
+    let simMinute = 0;
+    let tfCache = {};
+    const CANDLE_MS = 4000;
+    const MAX_CANDLES = 12;
+    const BASE_MAX = 2880; 
+    const TF_BARS = { M1:1, M5:5, M15:15, M30:30, H1:60, H4:240 };
+
+    const C = { green: "#00d56b", red: "#ff3b30", yellow: "#FBBF24", blue: "#006EFF", poc: "#FFEE00" };
+
+    function label(c, str, x, y, color, font, align){
+        c.save(); c.fillStyle = color; c.font = font || "11px Segoe UI, Arial";
+        c.textAlign = align || "left"; c.textBaseline = "middle"; c.fillText(str, x, y); c.restore();
+    }
+    function floatingLabel(c, str, x, y, color, align) {
+        c.save(); c.font = "700 11px Consolas, monospace"; c.textAlign = align || "right"; c.textBaseline = "top";
+        c.shadowColor = "rgba(0,0,0,0.85)"; c.shadowBlur = 4; c.shadowOffsetX = 1; c.shadowOffsetY = 1;
+        c.fillStyle = color || "#38BDF8"; c.fillText(str, x, y); c.restore();
+    }
+    function line(c, x1, y1, x2, y2, color, width, dash){
+        c.save(); c.strokeStyle = color; c.lineWidth = width || 1;
+        if (dash) c.setLineDash(dash);
+        c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); c.restore();
+    }
+    function fill(c, x, y, w, h, color){ c.fillStyle = color; c.fillRect(x, y, w, h); }
+    function clipRect(c, x, y, w, h, fn){ c.save(); c.beginPath(); c.rect(x,y,w,h); c.clip(); fn(); c.restore(); }
+
+    function getRemainingTimeStr(tf) {
+        const tfMins = TF_BARS[tf] || 1;
+        const msPerBar = tfMins * 60000; 
+        const simMsElapsed = (Date.now() / CANDLE_MS) * 60000; 
+        const remMs = msPerBar - (simMsElapsed % msPerBar);
+        const remSecs = Math.ceil(remMs / 1000);
+        const m = Math.floor(remSecs / 60); const s = remSecs % 60;
+        return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    function buildTFCandles(tf){
+        const bars = TF_BARS[tf] || 1;
+        const src = baseCandles.slice(-MAX_CANDLES * bars);
+        const out = []; let cur = null;
+        for (const c of src){
+            const bucket = Math.floor(c.simMinute / bars);
+            if (!cur || cur.bucket !== bucket){
+                if (cur) out.push(cur);
+                cur = { bucket, startMinute: bucket*bars, open:c.open, close:c.close, high:c.high, low:c.low, levels:{} };
+            }
+            cur.close = c.close;
+            if (c.high > cur.high) cur.high = c.high;
+            if (c.low < cur.low) cur.low = c.low;
+            for (const [ps, lv] of Object.entries(c.levels)){
+                const p = +ps;
+                if (!cur.levels[p]) cur.levels[p] = {bid:0, ask:0};
+                cur.levels[p].bid += lv.bid; cur.levels[p].ask += lv.ask;
+            }
+        }
+        if (cur) out.push(cur);
+        return out.slice(-MAX_CANDLES);
+    }
+    function getTFCandles(tf){ if (!tfCache[tf]) tfCache[tf] = buildTFCandles(tf); return tfCache[tf]; }
+    function aggregateLevels(levels){
+        const rows = new Map();
+        for (const [ps, lv] of Object.entries(levels)){
+            const p = +ps; let r = rows.get(p);
+            if (!r){ r = {p, bid:0, ask:0, total:0}; rows.set(p, r); }
+            r.bid += lv.bid; r.ask += lv.ask; r.total += lv.bid + lv.ask;
+        }
+        return rows;
+    }
+    function maxWing(rows){ let m=1; for (const r of rows.values()) m=Math.max(m,r.bid,r.ask); return m; }
+    function maxTotal(rows){ let m=1; for (const r of rows.values()) m=Math.max(m,r.total); return m; }
+    function valueArea(rows){
+        const list = [...rows.values()].sort((a,b)=>b.p-a.p);
+        if (!list.length) return null;
+        let poc = list[0], total = 0;
+        for (const r of list){ total += r.total; if (r.total > poc.total) poc = r; }
+        const listByPrice = [...list].sort((a,b)=>a.p-b.p);
+        const inc = new Set([poc.p]); let acc = poc.total;
+        let pocIdx = listByPrice.findIndex(r => r.p === poc.p);
+        let upIdx = pocIdx + 1, downIdx = pocIdx - 1;
+        const target = total * (settings.vaPct / 100);
+        while (acc < target && (upIdx < listByPrice.length || downIdx >= 0)) {
+            let volUp = upIdx < listByPrice.length ? listByPrice[upIdx].total : -1;
+            let volDown = downIdx >= 0 ? listByPrice[downIdx].total : -1;
+            if (volUp > volDown) { inc.add(listByPrice[upIdx].p); acc += volUp; upIdx++; } 
+            else { inc.add(listByPrice[downIdx].p); acc += volDown; downIdx--; }
+        }
+        const arr = [...inc].sort((a,b)=>b-a);
+        return {poc:poc.p, vah:arr[0], val:arr[arr.length-1]};
+    }
+    function drawCandleSpine(c, cx, bodyW, wickW, candle){
+        const yH = getY(candle.high), yL = getY(candle.low);
+        const yO = getY(candle.open), yC = getY(candle.close);
+        const up = candle.close >= candle.open;
+        const col = up ? C.green : C.red;
+        line(c, cx, yH, cx, yL, col, wickW || 1);
+        const top = Math.min(yO,yC); const h = Math.max(2, Math.abs(yC-yO));
+        fill(c, cx-bodyW/2, top, bodyW, h, col);
+    }
+
+    function simulateMT5Tick() {
+        let dir = Math.random(); let midPrice = currentPrice;
+        if (dir > 0.6) midPrice += TICK_SIZE; else if (dir < 0.4) midPrice -= TICK_SIZE;
+        currentPrice = Math.round(midPrice / TICK_SIZE) * TICK_SIZE;
+        let vol = Math.random() * 15; if (Math.random() > 0.95) vol += Math.random() * 100;
+        let flags = 0; if (Math.random() > 0.5) flags = dir > 0.6 ? 32 : (dir < 0.4 ? 64 : 0);
+        tickBuffer.push({ p: currentPrice, v: vol, t: Date.now(), flags: flags, bid: currentPrice - TICK_SIZE, ask: currentPrice + TICK_SIZE });
+    }
+    setInterval(simulateMT5Tick, 30);
+
+    function processInterval() {
+        if (tickBuffer.length === 0) return;
+        const now = Date.now();
+        let V_buy = 0, V_sell = 0, V_total = 0, priceSumWeighted = 0;
+        let intervalHigh = -Infinity, intervalLow = Infinity;
+        let currentIntervalTicks = {};
+        let intervalLevels = {};
+
+        tickBuffer.forEach(tk => {
+            let s_i = 0;
+            if (tk.flags & 32) s_i = 1; else if (tk.flags & 64) s_i = -1;
+            else {
+                if (tk.p >= tk.ask) s_i = 1; else if (tk.p <= tk.bid) s_i = -1;
+                else { if (tk.p > lastTickPrice) s_i = 1; else if (tk.p < lastTickPrice) s_i = -1; }
+            }
+            if (s_i === 1) V_buy += tk.v; else if (s_i === -1) V_sell += tk.v;
+            V_total += tk.v; priceSumWeighted += (tk.p * tk.v);
+            if (tk.p > intervalHigh) intervalHigh = tk.p;
+            if (tk.p < intervalLow) intervalLow = tk.p;
+            let pLevel = Math.round(tk.p / TICK_SIZE) * TICK_SIZE;
+            currentIntervalTicks[pLevel] = (currentIntervalTicks[pLevel] || 0) + tk.v;
+            
+            if (!intervalLevels[pLevel]) intervalLevels[pLevel] = { bid: 0, ask: 0 };
+            if (s_i === 1) intervalLevels[pLevel].ask += tk.v;
+            else if (s_i === -1) intervalLevels[pLevel].bid += tk.v;
+            
+            lastTickPrice = tk.p;
+        });
+
+        // Footprint / VP Candle logic
+        if (!currentFp || now - currentFp.start >= CANDLE_MS) {
+            simMinute++;
+            currentFp = {
+                start: now, simMinute: simMinute, open: currentPrice, close: currentPrice,
+                high: currentPrice, low: currentPrice, levels: {}
+            };
+            baseCandles.push(currentFp);
+            if (baseCandles.length > BASE_MAX) baseCandles.shift();
+            tfCache = {};
+        }
+        currentFp.close = currentPrice;
+        if (intervalHigh > currentFp.high) currentFp.high = intervalHigh;
+        if (intervalLow < currentFp.low) currentFp.low = intervalLow;
+        for (const [ps, lv] of Object.entries(intervalLevels)) {
+            const p = +ps;
+            if (!currentFp.levels[p]) currentFp.levels[p] = { bid: 0, ask: 0 };
+            currentFp.levels[p].bid += lv.bid; currentFp.levels[p].ask += lv.ask;
+        }
+
+        for (let p in globalActivityState) {
+            let state = globalActivityState[p];
+            let deltaT = now - state.lastUpdate;
+            let tau = (settings.decayRate || 10) * 1000;
+            state.V = state.V * Math.exp(-deltaT / tau);
+            if (currentIntervalTicks[p]) state.V += currentIntervalTicks[p];
+            state.lastUpdate = now;
+            if (state.V < 0.1) delete globalActivityState[p];
+        }
+        for (let p in currentIntervalTicks) {
+            if (!globalActivityState[p]) globalActivityState[p] = { V: currentIntervalTicks[p], lastUpdate: now };
+        }
+
+        for(let i = -60; i <= 60; i++) {
+            let p = Math.round((currentPrice + i*TICK_SIZE)/TICK_SIZE)*TICK_SIZE;
+            if(!restingDOM[p]) {
+                let isRound = (p % 1.0 === 0) ? ((settings.simRoundBias || 4)/2 || 2) : 1;
+                let isMajorRound = (p % 5.0 === 0) ? (settings.simRoundBias || 4) : 1;
+                restingDOM[p] = (Math.random() * 15 + 5) * isRound * isMajorRound;
+            }
+            restingDOM[p] += (Math.random() - 0.5) * (settings.simDomVol !== undefined ? settings.simDomVol : 5);
+            if(restingDOM[p] < 0) restingDOM[p] = 0;
+            let distToPrice = Math.abs(p - currentPrice);
+            if(distToPrice <= TICK_SIZE / 2) {
+                let absorbFactor = 1 - ((settings.simAbsorb !== undefined ? settings.simAbsorb : 80) / 100);
+                restingDOM[p] *= absorbFactor;
+            } else if (distToPrice <= TICK_SIZE * 2) {
+                let spoofFactor = 1 - ((settings.simSpoof !== undefined ? settings.simSpoof : 20) / 100);
+                restingDOM[p] *= spoofFactor;
+            }
+        }
+
+        let finalHeatmap = {};
+        let currentModeIsActivity = settings.heatmapMode === 'activity';
+        let sourceObj = currentModeIsActivity ? globalActivityState : restingDOM;
+        let valArr = currentModeIsActivity ? histMaxActivity : histMaxLiquidity;
+        let filterThreshold = Math.max(0.5, settings.volFilter || 0);
+
+        for (let p in sourceObj) {
+            let val = currentModeIsActivity ? sourceObj[p].V : sourceObj[p];
+            if (val > filterThreshold) { finalHeatmap[p] = val; valArr.push(val); }
+        }
+        if (valArr.length > 3000) valArr.splice(0, valArr.length - 3000);
+        historicalVolumes.push(V_total);
+        if(historicalVolumes.length > 500) historicalVolumes.shift();
+
+        const vwap = V_total > 0 ? priceSumWeighted / V_total : currentPrice;
+        const delta = V_buy - V_sell; const D_t = delta / (V_total + 0.0001);
+        cumulativeCVD += delta; sessionVolume += V_total; sessionPriceVolume += priceSumWeighted;
+        const cumulativeVwap = sessionVolume > 0 ? (sessionPriceVolume / sessionVolume) : currentPrice;
+
+        if (now - lastQ95Update > 1000) {
+            let pClip = (settings.clipPercentile !== undefined ? settings.clipPercentile : 99) / 100;
+            let getQ = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] || 1;
+            if (histMaxActivity.length > 0) {
+                let sortedA = [...histMaxActivity].sort((a,b) => a-b);
+                cachedQ_Clip_Act = getQ(sortedA, pClip);
+            }
+            if (histMaxLiquidity.length > 0) {
+                let sortedL = [...histMaxLiquidity].sort((a,b) => a-b);
+                cachedQ_Clip_Liq = getQ(sortedL, pClip);
+            }
+            lastQ95Update = now;
+        }
+
+        let col = {
+            timestamp: now, vwap: vwap, vTotal: V_total, vBuy: V_buy, vSell: V_sell,
+            delta: delta, D_t: D_t, cvd: cumulativeCVD, heatmap: finalHeatmap,
+            high: intervalHigh, low: intervalLow, cumulativeVwap: cumulativeVwap
+        };
+        historyColumns.push(col);
+        
+        const colWidth = (width / 200) * zoomX;
+        if (!isAutoScrolling) {
+            offsetX += colWidth; visOffsetX_Global += colWidth;
+        } else {
+            visOffsetX_Global += colWidth; 
+            let cpY = getY(currentPrice);
+            if (cpY < height * 0.25) offsetY += (height * 0.25 - cpY);
+            if (cpY > height * 0.75) offsetY -= (cpY - height * 0.75);
+            needsRedrawMain = true; needsRedrawRail = true;
+        }
+
+        if (historyColumns.length > MAX_COLS) historyColumns.shift();
+        tickBuffer = [];
+        
+        let dEl = document.getElementById('delta-val');
+        if(dEl) {
+            dEl.innerText = (delta >= 0 ? "+" : "") + delta.toFixed(1);
+            dEl.className = delta >= 0 ? "text-[#00d56b] font-bold" : "text-[#ff3b30] font-bold";
+        }
+        tfCache = {}; // Invalidate rail cache
+    }
+    
+    let processIntervalTimer = setInterval(processInterval, AGGREGATION_MS);
+
+    function changeAggregation(val) {
+        AGGREGATION_MS = parseInt(val); clearInterval(processIntervalTimer);
+        historyColumns = []; cumulativeCVD = 0; sessionVolume = 0; sessionPriceVolume = 0;
+        processIntervalTimer = setInterval(processInterval, AGGREGATION_MS);
+        needsRedrawMain = true; needsRedrawRail = true;
+    }
+
+    const colormap = [ [11, 14, 20], [0, 77, 153], [0, 136, 204], [255, 255, 255], [255, 238, 0], [255, 136, 0], [255, 0, 0] ];
+    function getZColor(z) {
+        if (isNaN(z) || z <= 0.02) return 'transparent';
+        let val = Math.min(1, Math.max(0, z)); let idx = val * (colormap.length - 1);
+        let i1 = Math.floor(idx), i2 = Math.ceil(idx), frac = idx - i1;
+        if (i1 < 0) i1 = 0; if (i2 >= colormap.length) i2 = colormap.length - 1;
+        let r = Math.round(colormap[i1][0] + (colormap[i2][0] - colormap[i1][0]) * frac);
+        let g = Math.round(colormap[i1][1] + (colormap[i2][1] - colormap[i1][1]) * frac);
+        let b = Math.round(colormap[i1][2] + (colormap[i2][2] - colormap[i1][2]) * frac);
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function pxPerPrice() { return (12 * zoomY) / TICK_SIZE; }
+    function rowH() { return TICK_SIZE * pxPerPrice(); }
+    function getY(price) { return (height / 2) + visOffsetY_Global + ((visPrice_Global - price) * pxPerPrice()); }
+    function rowY(p) { return getY(p + TICK_SIZE/2); }
+
+    function drawMain() {
+        if (!needsRedrawMain) return;
+        ctx.heatmap.clearRect(0, 0, width, height); ctx.bubble.clearRect(0, 0, width, height); ctx.cvd.clearRect(0, 0, width, cvdHeight);
+        if (historyColumns.length === 0) return;
+
+        const baseColWidth = width / 200; const colWidth = baseColWidth * zoomX; const epsilon = 0.0001;
+        let distRightMax = (width + visOffsetX_Global + colWidth) / colWidth;
+        let distRightMin = visOffsetX_Global / colWidth;
+        let startIndex = Math.max(0, historyColumns.length - Math.ceil(distRightMax));
+        let endIndex = Math.min(historyColumns.length - 1, historyColumns.length - Math.floor(distRightMin));
+
+        if (startIndex > endIndex || startIndex < 0 || endIndex >= historyColumns.length) return;
+
+        let minCVD = Infinity, maxCVD = -Infinity; let visibleCols = []; let maxVisVol = 1;
+        let qClipHeatmap = settings.heatmapMode === 'activity' ? cachedQ_Clip_Act : cachedQ_Clip_Liq;
+        const buckets = new Map(); const bubbleGroupSetting = Math.max(1, settings.bubbleGrouping || 10);
+
+        for (let i = startIndex; i <= endIndex; i++) {
+            let col = historyColumns[i]; if(!col) continue;
+            let x = width - ((historyColumns.length - i) * colWidth) + visOffsetX_Global;
+            let isZoomedOut = colWidth < 1.5;
+            
+            visibleCols.push({ x: x + colWidth/2, cvd: col.cvd, delta: col.delta, vTotal: col.vTotal, D_t: col.D_t, cumulativeVwap: col.cumulativeVwap });
+            if (col.cvd < minCVD) minCVD = col.cvd; if (col.cvd > maxCVD) maxCVD = col.cvd;
+            if (col.vTotal > maxVisVol) maxVisVol = col.vTotal;
+
+            if (settings.heatmap) {
+                let blockHeight = 12*zoomY; let wScale = settings.hmWidth || 1; let hScale = settings.hmHeight || 1;
+                if (!isZoomedOut || blockHeight >= 0.5) {
+                    for (let p in col.heatmap) {
+                        let y = getY(parseFloat(p));
+                        let z = col.heatmap[p] / (qClipHeatmap + epsilon);
+                        if (settings.colorScale === 'log') z = Math.log10(1 + col.heatmap[p]) / Math.log10(1 + qClipHeatmap + epsilon);
+                        let zContrasted = Math.pow(Math.max(0, Math.min(1, z)), settings.contrast || 1.0);
+                        ctx.heatmap.fillStyle = getZColor(zContrasted);
+                        let finalW = colWidth * wScale; let finalH = blockHeight * hScale;
+                        let drawX = Math.floor(x - (finalW - colWidth) / 2); let drawY = Math.floor(y - finalH / 2);
+                        let drawW = Math.ceil(finalW) + (settings.overlapX !== undefined ? settings.overlapX : 30); 
+                        let drawH = Math.ceil(finalH) + (settings.overlapY !== undefined ? settings.overlapY : 0); 
+                        ctx.heatmap.fillRect(drawX, drawY, drawW, drawH);
+                    }
+                }
+            }
+
+            if (settings.bubbles && col.vTotal > (settings.volFilter || 0)) {
+                let bucketId = Math.floor(i / bubbleGroupSetting);
+                if (!buckets.has(bucketId)) buckets.set(bucketId, { vTotal: 0, vBuy: 0, vSell: 0, delta: 0, sumVwapWeighted: 0, minX: x, maxX: x + colWidth });
+                let b = buckets.get(bucketId);
+                b.vTotal += col.vTotal; b.vBuy += col.vBuy; b.vSell += col.vSell; b.delta += col.delta;
+                b.sumVwapWeighted += (col.vwap * col.vTotal); b.minX = Math.min(b.minX, x); b.maxX = Math.max(b.maxX, x + colWidth);
+            }
+        }
+        
+        if (settings.vwap && visibleCols.length > 0) {
+            ctx.bubble.save(); ctx.bubble.beginPath();
+            for (let i = 0; i < visibleCols.length; i++) {
+                let pY = getY(visibleCols[i].cumulativeVwap);
+                if(i===0) ctx.bubble.moveTo(visibleCols[i].x, pY); else ctx.bubble.lineTo(visibleCols[i].x, pY);
+            }
+            ctx.bubble.shadowColor = 'rgba(0, 0, 0, 0.9)'; ctx.bubble.shadowBlur = 5; ctx.bubble.shadowOffsetX = 1; ctx.bubble.shadowOffsetY = 2;
+            ctx.bubble.strokeStyle = '#ffee00'; ctx.bubble.lineWidth = 2.5; ctx.bubble.stroke(); ctx.bubble.restore();
+        }
+        
+        if (settings.bubbles) {
+            for (let [_, b] of buckets) {
+                const cx = (b.minX + b.maxX) / 2; const vwapBucket = b.sumVwapWeighted / b.vTotal; const y = getY(vwapBucket);
+                const volRatio = Math.max(0.1, Math.min(1.5, b.vTotal / (maxVisVol * bubbleGroupSetting)));
+                const zoomFactor = Math.max(0.6, Math.min(zoomY, 1.5)); const totalRadius = (3 + 12 * Math.sqrt(volRatio)) * zoomFactor;
+                if (!Number.isFinite(cx) || !Number.isFinite(y) || totalRadius <= 0) continue;
+                ctx.bubble.save();
+                let grad = ctx.bubble.createRadialGradient(cx - totalRadius*0.3, y - totalRadius*0.3, totalRadius*0.1, cx, y, totalRadius);
+                grad.addColorStop(0, 'rgba(255,255,255,0.7)'); grad.addColorStop(0.5, 'rgba(0,0,0,0.1)'); grad.addColorStop(1, 'rgba(0,0,0,0.7)');
+
+                if (settings.bubbleMode === 'split') {
+                    let sellRatio = b.vSell / (b.vTotal + epsilon); let startAngle = -Math.PI / 2; let sellAngle = sellRatio * Math.PI * 2;
+                    ctx.bubble.beginPath(); ctx.bubble.moveTo(cx, y); ctx.bubble.arc(cx, y, totalRadius, startAngle + sellAngle, startAngle + Math.PI*2);
+                    ctx.bubble.fillStyle = '#00d56b'; ctx.bubble.fill();
+                    ctx.bubble.beginPath(); ctx.bubble.moveTo(cx, y); ctx.bubble.arc(cx, y, totalRadius, startAngle, startAngle + sellAngle);
+                    ctx.bubble.fillStyle = '#ff3b30'; ctx.bubble.fill();
+                    ctx.bubble.beginPath(); ctx.bubble.arc(cx, y, totalRadius, 0, Math.PI*2); ctx.bubble.fillStyle = grad; ctx.bubble.fill();
+                } else {
+                    let r = settings.bubbleMode === 'delta' ? Math.min(15, 3 + 12 * Math.sqrt(Math.abs(b.delta) / (maxVisVol*bubbleGroupSetting))) : totalRadius;
+                    let customGrad = ctx.bubble.createRadialGradient(cx - r*0.3, y - r*0.3, r*0.1, cx, y, r);
+                    customGrad.addColorStop(0, 'rgba(255,255,255,0.7)'); customGrad.addColorStop(0.5, 'rgba(0,0,0,0.1)'); customGrad.addColorStop(1, 'rgba(0,0,0,0.7)');
+                    ctx.bubble.beginPath(); ctx.bubble.arc(cx, y, r, 0, Math.PI*2);
+                    let D_t = b.delta / (b.vTotal + epsilon);
+                    if (settings.bubbleMode === 'delta') {
+                        if (D_t > 0.1) ctx.bubble.fillStyle = '#00d56b'; else if (D_t < -0.1) ctx.bubble.fillStyle = '#ff3b30'; else ctx.bubble.fillStyle = '#95a5a6';
+                    } else { ctx.bubble.fillStyle = '#3498db'; }
+                    ctx.bubble.fill(); ctx.bubble.beginPath(); ctx.bubble.arc(cx, y, r, 0, Math.PI*2); ctx.bubble.fillStyle = customGrad; ctx.bubble.fill();
+                }
+                ctx.bubble.lineWidth = 1; ctx.bubble.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.bubble.stroke(); ctx.bubble.restore();
+            }
+        }
+
+        if (settings.cvd && visibleCols.length > 0) {
+            ctx.cvd.fillStyle = 'rgba(11, 14, 20, 0.95)'; ctx.cvd.fillRect(0, 0, width, cvdHeight);
+            let maxVTotal = 0; visibleCols.forEach(c => { if(c.vTotal > maxVTotal) maxVTotal = c.vTotal; });
+            const cvdRange = Math.max(1, maxCVD - minCVD);
+            const volPanelH = cvdHeight * 0.45; const cvdPanelH = cvdHeight * 0.55;
+            ctx.cvd.beginPath(); ctx.cvd.moveTo(0, volPanelH); ctx.cvd.lineTo(width, volPanelH); ctx.cvd.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.cvd.stroke();
+            visibleCols.forEach(col => {
+                let h = (col.vTotal / (maxVTotal || 1)) * (volPanelH * 0.9);
+                if (col.delta > 0) ctx.cvd.fillStyle = 'rgba(0, 213, 107, 0.8)'; else if (col.delta < 0) ctx.cvd.fillStyle = 'rgba(255, 59, 48, 0.8)'; else ctx.cvd.fillStyle = 'rgba(149, 165, 166, 0.8)';
+                ctx.cvd.fillRect(col.x - colWidth/2, volPanelH, Math.max(1, colWidth - 0.5), -h);
+            });
+            const cvdDrawAreaH = cvdPanelH * 0.8; const cvdPaddingY = cvdPanelH * 0.1;
+            ctx.cvd.beginPath();
+            for (let i = 0; i < visibleCols.length; i++) {
+                let pY = volPanelH + cvdPanelH - ((visibleCols[i].cvd - minCVD) / cvdRange) * cvdDrawAreaH - cvdPaddingY;
+                if(i===0) ctx.cvd.moveTo(visibleCols[i].x, pY); else ctx.cvd.lineTo(visibleCols[i].x, pY);
+            }
+            ctx.cvd.strokeStyle = '#3b82f6'; ctx.cvd.lineWidth = 1.5; ctx.cvd.stroke();
+            if (minCVD <= 0 && maxCVD >= 0) {
+                let zeroY = volPanelH + cvdPanelH - ((0 - minCVD) / cvdRange) * cvdDrawAreaH - cvdPaddingY;
+                ctx.cvd.beginPath(); ctx.cvd.moveTo(0, zeroY); ctx.cvd.lineTo(width, zeroY);
+                ctx.cvd.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.cvd.setLineDash([4, 4]); ctx.cvd.stroke(); ctx.cvd.setLineDash([]);
+            }
+        }
+        drawCOB(); needsRedrawMain = false;
+    }
+
+    function drawCOB() {
+        if (!settings.cob) return;
+        let currentModeIsActivity = settings.heatmapMode === 'activity';
+        let sourceObj = currentModeIsActivity ? globalActivityState : restingDOM;
+        let qClipCOB = currentModeIsActivity ? cachedQ_Clip_Act : cachedQ_Clip_Liq;
+        
+        ctx.heatmap.save(); 
+        let blockHeight = 12 * zoomY; let hScale = settings.hmHeight || 1; let finalH = Math.max(1, blockHeight * hScale);
+        let startX = width + visOffsetX_Global; let filterThreshold = Math.max(0.5, settings.volFilter || 0);
+
+        for (let p in sourceObj) {
+            let vol = currentModeIsActivity ? sourceObj[p].V : sourceObj[p];
+            if (vol < filterThreshold || isNaN(vol)) continue;
+            let price = parseFloat(p); let y = getY(price);
+            let z = vol / (qClipCOB + 0.0001);
+            if (settings.colorScale === 'log') z = Math.log10(1 + vol) / Math.log10(1 + qClipCOB + 0.0001);
+            let zContrasted = Math.pow(Math.max(0, Math.min(1, z)), settings.cobOpacity !== undefined ? (settings.cobOpacity/100) : 0.8);
+            let finalLength = (settings.cobLength || 150) * zContrasted;
+            let drawX = Math.floor(startX); let drawY = Math.floor(y - finalH / 2);
+            let drawW = Math.ceil(finalLength); let drawH = Math.ceil(finalH) + (settings.overlapY !== undefined ? settings.overlapY : 0); 
+
+            ctx.heatmap.fillStyle = getZColor(zContrasted); ctx.heatmap.fillRect(drawX, drawY, drawW, drawH);
+        }
+        ctx.heatmap.restore();
+    }
+
+    // ==========================================
+    // RAIL FUNCTIONS (Axis, VP, FP)
+    // ==========================================
+    function drawAxis(c, totalHeight) {
+        fill(c, 0, 0, AXIS_W, totalHeight, "#080d14");
+        const topP = currentPrice - (0 - (height / 2) - visOffsetY_Global) / pxPerPrice();
+        const botP = currentPrice - (height - (height / 2) - visOffsetY_Global) / pxPerPrice();
+        const minPrice = Math.floor(botP/TICK_SIZE)*TICK_SIZE;
+        const maxPrice = Math.ceil(topP/TICK_SIZE)*TICK_SIZE;
+        
+        for (let p=minPrice; p<=maxPrice; p+=TICK_SIZE){
+            const y = getY(p);
+            if (y < 7 || y > height-7) continue;
+            if (Math.abs(p % (TICK_SIZE*10)) < 1e-5) {
+                label(c, p.toFixed(2), AXIS_W-7, y, "#64748b", "10px Consolas, monospace", "right");
+                line(c, AXIS_W-4, y, AXIS_W, y, "#334155", 1);
+            }
+        }
+        const y = getY(currentPrice);
+        if (y >= 0 && y <= height){
+            fill(c, 1, y-9, AXIS_W-2, 18, "rgba(234, 179, 8, .9)");
+            label(c, currentPrice.toFixed(2), AXIS_W-7, y, "#06121F", "bold 10px Consolas, monospace", "right");
+        }
+        line(c, AXIS_W, 0, AXIS_W, totalHeight, "#1e293b", 1);
+    }
+    
+    function drawVP(c, totalHeight) {
+        if (!settings.vp) return;
+        const n = settings.vpCount || 1; const shown = getTFCandles(settings.vpTF || 'M15').slice(-n);
+        const areaX = AXIS_W; const areaW = VP_W; const colW = (areaW-4) / Math.max(1, n); const rh = rowH();
+        fill(c, areaX, 0, areaW, totalHeight, "#0f172a");
+        line(c, areaX + VP_W, 0, areaX + VP_W, totalHeight, "#1e293b", 1);
+        floatingLabel(c, getRemainingTimeStr(settings.vpTF), areaX + areaW - 8, 8, "#38BDF8", "right");
+
+        let imbR = settings.imbRatio !== undefined ? settings.imbRatio : 2.5;
+        let imbM = settings.imbMinVol !== undefined ? settings.imbMinVol : 15;
+
+        for (let j=0; j<shown.length; j++) {
+            const candle = shown[j]; const colX = areaX + 2 + j*colW;
+            const rows = aggregateLevels(candle.levels);
+            const maxV = Math.max(1, maxWing(rows)); const maxT = Math.max(1, maxTotal(rows));
+            const stats = valueArea(rows); const profileStart = colX + 4; const maxProfileW = Math.max(6, colW - 8);
+
+            clipRect(c, colX, 0, colW, height, () => {
+                if (stats){
+                    const yVah = rowY(stats.vah), yVal = rowY(stats.val);
+                    if (yVal > yVah) fill(c, profileStart, yVah, maxProfileW, yVal-yVah, "rgba(59,130,246,.075)");
+                }
+                for (const r of rows.values()){
+                    const y = rowY(r.p); const yy = y + 0.5; const hh = Math.max(1, Math.min(rh-1, height-yy));
+                    if (yy < 0 || yy > height || hh <= 0) continue;
+
+                    if (settings.vpMode === "CLASSIC"){
+                        const w = Math.min(maxProfileW, (r.total/maxT)*maxProfileW);
+                        if (w > 0) fill(c, profileStart, yy, w, hh, candle.close>=candle.open?"rgba(0,213,107,.82)":"rgba(255,59,48,.82)");
+                    } else if (settings.vpMode === "DELTA"){
+                        const d = r.ask - r.bid; const zero = profileStart + maxProfileW/2;
+                        const w = Math.min(maxProfileW/2, (Math.abs(d)/(maxV*2))*(maxProfileW/2));
+                        if (w > 0){
+                            if (d >= 0) fill(c, zero, yy, w, hh, "rgba(0,213,107,.9)");
+                            else fill(c, zero-w, yy, w, hh, "rgba(255,59,48,.9)");
+                        }
+                    } else { // IMBALANCE
+                        let askAbove = rows.get(r.p + TICK_SIZE) ? rows.get(r.p + TICK_SIZE).ask : 0;
+                        let bidBelow = rows.get(r.p - TICK_SIZE) ? rows.get(r.p - TICK_SIZE).bid : 0;
+                        
+                        const sellImb = r.bid >= imbM && (askAbove === 0 ? true : r.bid / askAbove >= imbR);
+                        const buyImb = r.ask >= imbM && (bidBelow === 0 ? true : r.ask / bidBelow >= imbR);
+
+                        const bidW = Math.min(maxProfileW, (r.bid/(maxV*2))*maxProfileW);
+                        const askW = Math.min(maxProfileW-bidW, (r.ask/(maxV*2))*maxProfileW);
+                        if (bidW > 0) fill(c, profileStart, yy, bidW, hh, sellImb?C.yellow:C.red);
+                        if (askW > 0) fill(c, profileStart+bidW, yy, askW, hh, buyImb?C.blue:C.green);
+                    }
+                    
+                    const showNums = settings.vpText && rh >= 9;
+                    if (showNums) {
+                        const ty = yy + hh/2;
+                        if (settings.vpMode === "CLASSIC") label(c, parseInt(r.total), profileStart + 4, ty, "#E2E8F0", "10px Consolas", "left");
+                        else if (settings.vpMode === "DELTA") {
+                            const d = r.ask - r.bid;
+                            label(c, (d>=0?"+":"")+parseInt(Math.abs(d)), profileStart + maxProfileW/2 + (d>=0?4:-4), ty, d>=0?"#A7F3D0":"#FCA5A5", "10px Consolas", d>=0?"left":"right");
+                        } else {
+                            if (r.bid > 0) label(c, parseInt(r.bid), profileStart + 2, ty, "#E2E8F0", "9px Consolas", "left");
+                            if (r.ask > 0) label(c, parseInt(r.ask), profileStart + maxProfileW - 2, ty, "#E2E8F0", "9px Consolas", "right");
+                        }
+                    }
+                    if (stats && r.p === stats.poc) line(c, profileStart, yy+hh/2, profileStart+maxProfileW, yy+hh/2, C.poc, 1);
+                }
+                if (stats){
+                    line(c, profileStart, rowY(stats.vah), profileStart+maxProfileW, rowY(stats.vah), "rgba(59,130,246,.65)", 1);
+                    line(c, profileStart, rowY(stats.val), profileStart+maxProfileW, rowY(stats.val), "rgba(59,130,246,.65)", 1);
+                }
+            });
+        }
+    }
+
+    function drawFP(c, totalHeight) {
+        if (!settings.fp) return;
+        const n = settings.fpCount || 1; const shown = getTFCandles(settings.fpTF || 'M15').slice(-n);
+        let areaX = AXIS_W; if (settings.vp) areaX += VP_W;
+        const areaW = FP_W; const colW = (areaW-4) / Math.max(1, n); const rh = rowH();
+        
+        fill(c, areaX, 0, areaW, totalHeight, "#0f172a");
+        floatingLabel(c, getRemainingTimeStr(settings.fpTF), areaX + areaW - 8, 8, "#38BDF8", "right");
+
+        let imbR = settings.imbRatio !== undefined ? settings.imbRatio : 2.5;
+        let imbM = settings.imbMinVol !== undefined ? settings.imbMinVol : 15;
+
+        for (let j=0; j<shown.length; j++) {
+            const candle = shown[j]; const colX = areaX + 2 + j*colW; const cx = colX + colW/2;
+            const rows = aggregateLevels(candle.levels);
+            const maxV = Math.max(1, maxWing(rows)); const bodyW = Math.min(settings.fpBodyWidth, Math.max(6, colW*0.12));
+            const wingStart = bodyW/2 + 5; const maxHalf = Math.max(2, colW/2 - wingStart - 6);
+            const showNums = settings.fpText && rh >= 9; const pulse = 0.65 + 0.35*Math.sin(Date.now()/150);
+
+            clipRect(c, colX, 0, colW, height, () => {
+                drawCandleSpine(c, cx, bodyW, 1, candle);
+                for (const r of rows.values()){
+                    const y = rowY(r.p); const yy = y + 0.5; const hh = Math.max(1, Math.min(rh-1, height-yy));
+                    if (yy < 0 || yy > height || hh <= 0) continue;
+
+                    let askAbove = rows.get(r.p + TICK_SIZE) ? rows.get(r.p + TICK_SIZE).ask : 0;
+                    let bidBelow = rows.get(r.p - TICK_SIZE) ? rows.get(r.p - TICK_SIZE).bid : 0;
+                    
+                    const sellImb = r.bid >= imbM && (askAbove === 0 ? true : r.bid / askAbove >= imbR);
+                    const buyImb = r.ask >= imbM && (bidBelow === 0 ? true : r.ask / bidBelow >= imbR);
+
+                    if (settings.fpMode === "IMBALANCE" && (sellImb || buyImb)){ fill(c, colX+2, yy, colW-4, hh, sellImb ? `rgba(251,191,36,${0.22*pulse})`:`rgba(0,110,255,${0.22*pulse})`); }
+
+                    const ty = yy + hh / 2;
+                    if (settings.fpMode === "DELTA"){
+                        const d = r.ask - r.bid; const w = Math.min(maxHalf, (Math.abs(d)/maxV)*maxHalf*settings.fpStretch);
+                        if (w > 0){
+                            if (d >= 0) fill(c, cx+wingStart, yy, w, hh, C.green);
+                            else fill(c, cx-wingStart-w, yy, w, hh, C.red);
+                        }
+                        if (showNums) label(c, (d>=0?"+":"")+parseInt(Math.abs(d)), cx+(d>=0?wingStart+3:-wingStart-3), ty, d>=0?"#A7F3D0":"#FCA5A5", "10px Consolas", d>=0?"left":"right");
+                    } else {
+                        const bidW = Math.min(maxHalf, (r.bid/maxV)*maxHalf*settings.fpStretch); const askW = Math.min(maxHalf, (r.ask/maxV)*maxHalf*settings.fpStretch);
+                        if (bidW > 0) fill(c, cx-wingStart-bidW, yy, bidW, hh, settings.fpMode === "IMBALANCE" && sellImb ? C.yellow : C.red);
+                        if (askW > 0) fill(c, cx+wingStart, yy, askW, hh, settings.fpMode === "IMBALANCE" && buyImb ? C.blue : C.green);
+                        if (showNums){
+                            if (r.bid > 0) label(c, parseInt(r.bid), cx-wingStart-2, ty, "#E2E8F0", "9px Consolas", "right");
+                            if (r.ask > 0) label(c, parseInt(r.ask), cx+wingStart+2, ty, "#E2E8F0", "9px Consolas", "left");
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    function drawRail() {
+        if (!needsRedrawRail || RAIL_W <= 0) return;
+        const c = ctx.rail; const totalHeight = canvases.rail.height;
+        c.clearRect(0, 0, RAIL_W, totalHeight); fill(c, 0, 0, RAIL_W, totalHeight, "#0b0e14");
+        
+        drawAxis(c, totalHeight);
+        drawVP(c, totalHeight);
+        drawFP(c, totalHeight);
+        
+        const y = getY(currentPrice);
+        if (y >= 0 && y <= height) {
+            line(c, AXIS_W, y, RAIL_W, y, "rgba(234, 179, 8, .5)", 1, [5,4]);
+        }
+        needsRedrawRail = false;
+    }
+
+    function drawUI() {
+        ctx.ui.clearRect(0, 0, width, height);
+        let cpY = getY(currentPrice);
+        if (cpY >= 0 && cpY <= height) {
+            line(ctx.ui, 0, cpY, width, cpY, "rgba(234, 179, 8, 0.9)", 1, [4, 4]);
+        }
+    }
+
+    let lastRailUpdate = 0;
+    function animate() {
+        let getFactor = (val) => val === 0 ? 1 : Math.pow(0.01, val / 100);
+        let fGlobal = getFactor(settings.stabGlobal !== undefined ? settings.stabGlobal : 80);
+        
+        if (isDragging) {
+            visOffsetX_Global = offsetX; visOffsetY_Global = offsetY; visPrice_Global = currentPrice;
+        } else {
+            visOffsetX_Global += (offsetX - visOffsetX_Global) * fGlobal;
+            visOffsetY_Global += (offsetY - visOffsetY_Global) * fGlobal;
+            visPrice_Global += (currentPrice - visPrice_Global) * fGlobal;
+        }
+
+        if (Math.abs(offsetX - visOffsetX_Global) > 0.5 || Math.abs(offsetY - visOffsetY_Global) > 0.5 || Math.abs(currentPrice - visPrice_Global) > 0.01) {
+            needsRedrawMain = true; needsRedrawRail = true;
+        }
+
+        const jumpBtn = document.getElementById('btn-jump-to-live');
+        if (jumpBtn) {
+            if (!isAutoScrolling && offsetX > 100) jumpBtn.classList.remove('hidden');
+            else jumpBtn.classList.add('hidden');
+        }
+
+        drawMain(); drawUI();
+        
+        const now = Date.now();
+        if (now - lastRailUpdate > 50 || needsRedrawRail) {
+            drawRail(); lastRailUpdate = now;
+        }
+        
+        requestAnimationFrame(animate);
+    }
+    
+    window.onload = () => { resize(); requestAnimationFrame(animate); };
+</script>
+</body>
+</html>
